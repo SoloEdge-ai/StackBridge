@@ -2,44 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   TerminalSessionManager,
-  type PtyExitEvent,
-  type PtyProcess,
 } from "./terminal-session.js";
-
-class ControlledPty implements PtyProcess {
-  readonly writes: string[] = [];
-  readonly resizes: Array<{ cols: number; rows: number }> = [];
-  readonly dataListeners = new Set<(data: string) => void>();
-  readonly exitListeners = new Set<(event: PtyExitEvent) => void>();
-
-  write(data: string): void {
-    this.writes.push(data);
-  }
-
-  resize(cols: number, rows: number): void {
-    this.resizes.push({ cols, rows });
-  }
-
-  kill(): void {}
-
-  onData(listener: (data: string) => void): () => void {
-    this.dataListeners.add(listener);
-    return () => this.dataListeners.delete(listener);
-  }
-
-  onExit(listener: (event: PtyExitEvent) => void): () => void {
-    this.exitListeners.add(listener);
-    return () => this.exitListeners.delete(listener);
-  }
-
-  emitData(data: string): void {
-    for (const listener of this.dataListeners) listener(data);
-  }
-
-  emitExit(event: PtyExitEvent): void {
-    for (const listener of this.exitListeners) listener(event);
-  }
-}
+import { ControlledPty } from "./test/controlled-pty.js";
 
 describe("terminal session lifecycle", () => {
   it("keeps the same PTY alive when a client disconnects and reconnects", () => {
@@ -105,5 +69,28 @@ describe("terminal session lifecycle", () => {
     expect(session.snapshot().state).toBe("exited");
     expect(events).toContainEqual({ type: "exit", exitCode: 17, signal: 0 });
     expect(() => session.write("dir\r")).toThrow("Terminal session has exited");
+  });
+
+  it("bounds the registry and evicts an exited session before creating another", () => {
+    const ptys: ControlledPty[] = [];
+    const manager = new TerminalSessionManager(
+      () => {
+        const pty = new ControlledPty();
+        ptys.push(pty);
+        return pty;
+      },
+      { maxSessions: 1 },
+    );
+    const first = manager.create({ cols: 80, rows: 24 });
+
+    expect(() => manager.create({ cols: 80, rows: 24 })).toThrow(
+      "Terminal session limit reached",
+    );
+
+    ptys[0]!.emitExit({ exitCode: 0, signal: 0 });
+    const second = manager.create({ cols: 80, rows: 24 });
+
+    expect(manager.get(first.id)).toBeUndefined();
+    expect(manager.get(second.id)).toBe(second);
   });
 });

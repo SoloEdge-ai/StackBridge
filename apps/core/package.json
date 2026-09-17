@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsup src/main.ts --format esm --platform node --sourcemap --clean --external node-pty",
+    "build": "tsup --config tsup.config.ts",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
     "test": "vitest run",

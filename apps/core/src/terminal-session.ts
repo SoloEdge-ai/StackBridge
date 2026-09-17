@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import type {
+  ServerTerminalMessage,
+  TerminalSessionSnapshot,
+} from "@stackbridge/protocol";
+
 export interface PtyExitEvent {
   exitCode: number;
   signal?: number;
@@ -20,19 +25,10 @@ export interface PtySpawnOptions {
 
 export type PtyFactory = (options: PtySpawnOptions) => PtyProcess;
 
-export type TerminalSessionEvent =
-  | { type: "output"; data: string }
-  | { type: "exit"; exitCode: number; signal?: number };
-
-export interface TerminalSessionSnapshot {
-  id: string;
-  state: "running" | "exited";
-  cols: number;
-  rows: number;
-  replay: string;
-  exitCode?: number;
-  signal?: number;
-}
+export type TerminalSessionEvent = Extract<
+  ServerTerminalMessage,
+  { type: "output" | "exit" }
+>;
 
 type TerminalSessionListener = (event: TerminalSessionEvent) => void;
 
@@ -136,20 +132,30 @@ export class TerminalSession {
 
 export interface TerminalSessionManagerOptions {
   replayBytes?: number;
+  maxSessions?: number;
+}
+
+export class TerminalSessionLimitError extends Error {
+  constructor() {
+    super("Terminal session limit reached");
+  }
 }
 
 export class TerminalSessionManager {
   private readonly sessions = new Map<string, TerminalSession>();
   private readonly replayBytes: number;
+  private readonly maxSessions: number;
 
   constructor(
     private readonly ptyFactory: PtyFactory,
     options: TerminalSessionManagerOptions = {},
   ) {
     this.replayBytes = options.replayBytes ?? 1_048_576;
+    this.maxSessions = options.maxSessions ?? 16;
   }
 
   create(options: PtySpawnOptions): TerminalSession {
+    this.makeRoom();
     const session = new TerminalSession(
       this.ptyFactory(options),
       options.cols,
@@ -167,6 +173,17 @@ export class TerminalSessionManager {
   disposeAll(): void {
     for (const session of this.sessions.values()) session.dispose();
     this.sessions.clear();
+  }
+
+  private makeRoom(): void {
+    if (this.sessions.size < this.maxSessions) return;
+    for (const [id, session] of this.sessions) {
+      if (session.snapshot().state !== "exited") continue;
+      session.dispose();
+      this.sessions.delete(id);
+      return;
+    }
+    throw new TerminalSessionLimitError();
   }
 }
 

@@ -4,45 +4,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
 import { createCoreServer, type CoreServer } from "./server.js";
-import {
-  TerminalSessionManager,
-  type PtyExitEvent,
-  type PtyProcess,
-} from "./terminal-session.js";
+import { TerminalSessionManager } from "./terminal-session.js";
+import { ControlledPty } from "./test/controlled-pty.js";
 
 const origin = "http://127.0.0.1:5173";
 const firstMessages = new WeakMap<WebSocket, Promise<unknown>>();
-
-class BrowserBoundaryPty implements PtyProcess {
-  readonly writes: string[] = [];
-  readonly resizes: Array<{ cols: number; rows: number }> = [];
-  private readonly dataListeners = new Set<(data: string) => void>();
-  private readonly exitListeners = new Set<(event: PtyExitEvent) => void>();
-
-  write(data: string): void {
-    this.writes.push(data);
-  }
-
-  resize(cols: number, rows: number): void {
-    this.resizes.push({ cols, rows });
-  }
-
-  kill(): void {}
-
-  onData(listener: (data: string) => void): () => void {
-    this.dataListeners.add(listener);
-    return () => this.dataListeners.delete(listener);
-  }
-
-  onExit(listener: (event: PtyExitEvent) => void): () => void {
-    this.exitListeners.add(listener);
-    return () => this.exitListeners.delete(listener);
-  }
-
-  emitData(data: string): void {
-    for (const listener of this.dataListeners) listener(data);
-  }
-}
 
 describe("Core browser boundary", () => {
   let core: CoreServer | undefined;
@@ -52,7 +18,7 @@ describe("Core browser boundary", () => {
   });
 
   it("requires an allowed origin and a valid launch token", async () => {
-    const pty = new BrowserBoundaryPty();
+    const pty = new ControlledPty();
     core = createCoreServer({
       launchToken: "launch-secret",
       allowedOrigins: [origin],
@@ -80,7 +46,7 @@ describe("Core browser boundary", () => {
   });
 
   it("creates a terminal and reconnects to the same session over WebSocket", async () => {
-    const pty = new BrowserBoundaryPty();
+    const pty = new ControlledPty();
     core = createCoreServer({
       launchToken: "launch-secret",
       allowedOrigins: [origin],
@@ -113,23 +79,78 @@ describe("Core browser boundary", () => {
       writable: true,
     });
 
-    firstSocket.send(JSON.stringify({ type: "input", data: "pwd\r" }));
-    firstSocket.send(JSON.stringify({ type: "resize", cols: 132, rows: 40 }));
+    const secondSocket = await connectWebSocket(baseUrl, created.id, cookie);
+    expect(await nextJsonMessage(secondSocket)).toMatchObject({
+      type: "ready",
+      sessionId: created.id,
+      writable: false,
+    });
+
+    const readOnlyError = nextJsonMessage(secondSocket);
+    secondSocket.send(JSON.stringify({ type: "input", data: "blocked\r" }));
+    expect(await readOnlyError).toMatchObject({
+      type: "error",
+      code: "write_lease_required",
+    });
+    expect(pty.writes).toEqual([]);
+
+    const firstRevoked = nextJsonMessage(firstSocket);
+    const secondGranted = nextJsonMessage(secondSocket);
+    secondSocket.send(JSON.stringify({ type: "acquireWriteLease" }));
+    expect(await firstRevoked).toEqual({ type: "writable", writable: false });
+    expect(await secondGranted).toEqual({ type: "writable", writable: true });
+
+    secondSocket.send(JSON.stringify({ type: "input", data: "pwd\r" }));
+    secondSocket.send(JSON.stringify({ type: "resize", cols: 132, rows: 40 }));
     await eventually(() => pty.writes.length === 1 && pty.resizes.length === 1);
     expect(pty.writes).toEqual(["pwd\r"]);
     expect(pty.resizes).toEqual([{ cols: 132, rows: 40 }]);
 
+    const firstPromoted = nextJsonMessage(firstSocket);
+    await closeWebSocket(secondSocket);
+    expect(await firstPromoted).toEqual({ type: "writable", writable: true });
+    firstSocket.send(JSON.stringify({ type: "input", data: "whoami\r" }));
+    await eventually(() => pty.writes.length === 2);
+    expect(pty.writes).toEqual(["pwd\r", "whoami\r"]);
+
     await closeWebSocket(firstSocket);
     pty.emitData("output while browser is refreshing\r\n");
 
-    const secondSocket = await connectWebSocket(baseUrl, created.id, cookie);
-    const secondReady = await nextJsonMessage(secondSocket);
-    expect(secondReady).toMatchObject({
+    const refreshedSocket = await connectWebSocket(baseUrl, created.id, cookie);
+    const refreshedReady = await nextJsonMessage(refreshedSocket);
+    expect(refreshedReady).toMatchObject({
       type: "ready",
       sessionId: created.id,
       replay: "output while browser is refreshing\r\n",
     });
-    secondSocket.close();
+    refreshedSocket.close();
+  });
+
+  it("rejects WebSocket upgrades without the allowed origin and cookie", async () => {
+    const pty = new ControlledPty();
+    core = createCoreServer({
+      launchToken: "launch-secret",
+      allowedOrigins: [origin],
+      terminalSessions: new TerminalSessionManager(() => pty),
+    });
+    const baseUrl = await listen(core);
+    const cookie = await authenticate(baseUrl);
+    const createResponse = await fetch(`${baseUrl}/v1/terminal-sessions`, {
+      method: "POST",
+      headers: { origin, cookie, "content-type": "application/json" },
+      body: JSON.stringify({ cols: 80, rows: 24 }),
+    });
+    const created = (await createResponse.json()) as { id: string };
+
+    expect(
+      await rejectedWebSocketStatus(baseUrl, created.id, {
+        origin: "https://attacker.example",
+        cookie,
+      }),
+    ).toBe(403);
+    expect(
+      await rejectedWebSocketStatus(baseUrl, created.id, { origin }),
+    ).toBe(401);
   });
 
   async function authenticate(baseUrl: string): Promise<string> {
@@ -197,6 +218,28 @@ async function closeWebSocket(socket: WebSocket): Promise<void> {
   const closed = new Promise<void>((resolve) => socket.once("close", resolve));
   socket.close();
   await closed;
+}
+
+async function rejectedWebSocketStatus(
+  baseUrl: string,
+  sessionId: string,
+  headers: Record<string, string>,
+): Promise<number | undefined> {
+  const url = baseUrl
+    .replace(/^http/, "ws")
+    .concat(`/v1/terminal-sessions/${sessionId}/stream`);
+  const socket = new WebSocket(url, { headers });
+  return await new Promise((resolve, reject) => {
+    socket.once("unexpected-response", (_request, response) => {
+      resolve(response.statusCode);
+      response.destroy();
+    });
+    socket.once("open", () => {
+      socket.close();
+      reject(new Error("WebSocket upgrade unexpectedly succeeded"));
+    });
+    socket.once("error", reject);
+  });
 }
 
 async function eventually(predicate: () => boolean): Promise<void> {

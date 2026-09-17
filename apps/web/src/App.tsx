@@ -7,6 +7,8 @@ import {
 } from "@stackbridge/protocol";
 
 const storedSessionKey = "stackbridge.terminalSessionId";
+const maximumTerminalQueueBytes = 4_194_304;
+const terminalConnectionTimeoutMs = 5_000;
 
 type AuthState = "checking" | "required" | "authenticated";
 type ConnectionState = "connecting" | "running" | "exited" | "unavailable";
@@ -115,8 +117,10 @@ function TerminalWorkspace({
   onCreateFreshTerminal: () => void;
 }) {
   const terminalHost = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<WebSocket | undefined>(undefined);
   const [connectionState, setConnectionState] =
     useState<ConnectionState>("connecting");
+  const [isWritable, setIsWritable] = useState(false);
   const [sessionId, setSessionId] = useState<string>();
   const [detail, setDetail] = useState("正在附着 PowerShell PTY");
 
@@ -151,15 +155,45 @@ function TerminalWorkspace({
 
     let disposed = false;
     let terminalExited = false;
+    let canWrite = false;
     let socket: WebSocket | undefined;
+    let connectionTimer: number | undefined;
+    let outputQueueBytes = 0;
+    let writingOutput = false;
+    const outputQueue: string[] = [];
+    const textEncoder = new TextEncoder();
+    const enqueueOutput = (data: string) => {
+      outputQueueBytes += textEncoder.encode(data).byteLength;
+      if (outputQueueBytes > maximumTerminalQueueBytes) {
+        outputQueue.length = 0;
+        outputQueueBytes = 0;
+        socket?.close(1013, "Terminal renderer fell behind");
+        setConnectionState("unavailable");
+        setDetail("终端输出过快，已断开以保护内存");
+        return;
+      }
+      outputQueue.push(data);
+      flushOutput();
+    };
+    const flushOutput = () => {
+      if (writingOutput) return;
+      const data = outputQueue.shift();
+      if (data === undefined) return;
+      writingOutput = true;
+      outputQueueBytes -= textEncoder.encode(data).byteLength;
+      terminal.write(data, () => {
+        writingOutput = false;
+        flushOutput();
+      });
+    };
     const dataSubscription = terminal.onData((data) => {
-      if (socket?.readyState === WebSocket.OPEN) {
+      if (canWrite && socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
     const resizeObserver = new ResizeObserver(() => {
       fit.fit();
-      if (socket?.readyState === WebSocket.OPEN) {
+      if (canWrite && socket?.readyState === WebSocket.OPEN) {
         socket.send(
           JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }),
         );
@@ -182,16 +216,28 @@ function TerminalWorkspace({
         socket = new WebSocket(
           `${protocol}//${window.location.host}/v1/terminal-sessions/${id}/stream`,
         );
+        socketRef.current = socket;
+        connectionTimer = window.setTimeout(() => {
+          if (disposed || terminalExited) return;
+          socket?.close();
+          setConnectionState("unavailable");
+          setDetail("连接终端超时；Core 可能已重启");
+        }, terminalConnectionTimeoutMs);
         socket.addEventListener("message", (event) => {
           const decoded = decodeServerMessage(event.data);
           if (decoded === undefined) return;
           if (decoded.type === "ready") {
+            clearConnectionTimer();
+            canWrite = decoded.writable;
+            setIsWritable(decoded.writable);
             terminalExited = decoded.state === "exited";
-            if (decoded.replay) terminal.write(decoded.replay);
+            if (decoded.replay) enqueueOutput(decoded.replay);
             setConnectionState(decoded.state);
             setDetail(
               decoded.state === "running"
-                ? "已连接 · 刷新页面会附着同一会话"
+                ? decoded.writable
+                  ? "已连接 · 当前页面持有写入租约"
+                  : "已连接 · 只读，另一页面持有写入租约"
                 : "PowerShell 已退出",
             );
             if (decoded.writable) {
@@ -205,8 +251,20 @@ function TerminalWorkspace({
               terminal.focus();
             }
           } else if (decoded.type === "output") {
-            terminal.write(decoded.data);
+            enqueueOutput(decoded.data);
+          } else if (decoded.type === "writable") {
+            canWrite = decoded.writable;
+            setIsWritable(decoded.writable);
+            setDetail(
+              decoded.writable
+                ? "已接管写入租约"
+                : "只读，另一页面已接管写入租约",
+            );
+            if (decoded.writable) terminal.focus();
           } else if (decoded.type === "exit") {
+            clearConnectionTimer();
+            canWrite = false;
+            setIsWritable(false);
             terminalExited = true;
             setConnectionState("exited");
             setDetail(`PowerShell 已退出（code ${decoded.exitCode}）`);
@@ -215,12 +273,16 @@ function TerminalWorkspace({
           }
         });
         socket.addEventListener("close", () => {
+          clearConnectionTimer();
+          canWrite = false;
+          setIsWritable(false);
           if (!disposed && !terminalExited) {
             setConnectionState("unavailable");
             setDetail("无法附着该会话；Core 可能已重启");
           }
         });
         socket.addEventListener("error", () => {
+          clearConnectionTimer();
           if (!disposed) {
             setConnectionState("unavailable");
             setDetail("WebSocket 连接失败");
@@ -237,9 +299,18 @@ function TerminalWorkspace({
       }
     }
 
+    function clearConnectionTimer() {
+      if (connectionTimer === undefined) return;
+      window.clearTimeout(connectionTimer);
+      connectionTimer = undefined;
+    }
+
     return () => {
       disposed = true;
+      clearConnectionTimer();
       resizeObserver.disconnect();
+      canWrite = false;
+      if (socketRef.current === socket) socketRef.current = undefined;
       dataSubscription.dispose();
       socket?.close();
       terminal.dispose();
@@ -270,6 +341,17 @@ function TerminalWorkspace({
         {connectionState === "unavailable" || connectionState === "exited" ? (
           <button className="secondary-button" onClick={onCreateFreshTerminal}>
             新建终端
+          </button>
+        ) : connectionState === "running" && !isWritable ? (
+          <button
+            className="secondary-button"
+            onClick={() =>
+              socketRef.current?.send(
+                JSON.stringify({ type: "acquireWriteLease" }),
+              )
+            }
+          >
+            接管输入
           </button>
         ) : null}
       </section>

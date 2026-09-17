@@ -1,15 +1,19 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import {
-  clientTerminalMessageSchema,
   createTerminalSessionRequestSchema,
-  type ServerTerminalMessage,
+  type TerminalSessionSnapshot,
 } from "@stackbridge/protocol";
-import { WebSocket, WebSocketServer } from "ws";
+import { WebSocketServer } from "ws";
 
-import type { TerminalSessionManager } from "./terminal-session.js";
+import { BrowserSessionStore } from "./browser-session-store.js";
+import {
+  TerminalSessionLimitError,
+  type TerminalSessionManager,
+} from "./terminal-session.js";
+import { TerminalWebSocketHub } from "./terminal-websocket.js";
 
 const sessionCookieName = "stackbridge_session";
 const maximumBodyBytes = 16_384;
@@ -18,6 +22,7 @@ export interface CoreServerOptions {
   launchToken: string;
   allowedOrigins: string[];
   terminalSessions: TerminalSessionManager;
+  browserSessions?: BrowserSessionStore;
 }
 
 export interface ListenOptions {
@@ -32,9 +37,10 @@ export interface CoreServer {
 }
 
 export function createCoreServer(options: CoreServerOptions): CoreServer {
-  const browserSessions = new Set<string>();
+  const browserSessions = options.browserSessions ?? new BrowserSessionStore();
   const allowedOrigins = new Set(options.allowedOrigins);
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: 65_536 });
+  const terminalWebSockets = new TerminalWebSocketHub();
   const server = createServer((request, response) => {
     void handleHttpRequest(request, response).catch((error: unknown) => {
       console.error("Core request failed", error);
@@ -66,7 +72,7 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
     }
 
     webSockets.handleUpgrade(request, socket, head, (webSocket) => {
-      attachTerminalWebSocket(webSocket, terminalSession);
+      terminalWebSockets.attach(webSocket, terminalSession);
     });
   });
 
@@ -90,10 +96,9 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
         writeJson(response, 401, { error: "invalid_launch_token" });
         return;
       }
-      const browserSession = randomBytes(32).toString("base64url");
-      browserSessions.add(browserSession);
+      const browserSession = browserSessions.issue();
       response.writeHead(204, {
-        "set-cookie": `${sessionCookieName}=${browserSession}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`,
+        "set-cookie": `${sessionCookieName}=${browserSession}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${browserSessions.cookieMaxAgeSeconds()}`,
         "cache-control": "no-store",
       });
       response.end();
@@ -120,8 +125,18 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
         writeJson(response, 400, { error: "invalid_request" });
         return;
       }
-      const terminalSession = options.terminalSessions.create(parsed.data);
-      writeJson(response, 201, terminalSession.snapshot());
+      let terminalSession;
+      try {
+        terminalSession = options.terminalSessions.create(parsed.data);
+      } catch (error) {
+        if (error instanceof TerminalSessionLimitError) {
+          writeJson(response, 503, { error: "terminal_session_limit_reached" });
+          return;
+        }
+        throw error;
+      }
+      const responseBody = terminalSession.snapshot() satisfies TerminalSessionSnapshot;
+      writeJson(response, 201, responseBody);
       return;
     }
 
@@ -150,71 +165,6 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
       });
     },
   };
-}
-
-function attachTerminalWebSocket(
-  webSocket: WebSocket,
-  terminalSession: NonNullable<ReturnType<TerminalSessionManager["get"]>>,
-): void {
-  const attachment = terminalSession.attach((event) => {
-    sendJson(webSocket, event);
-  });
-  const snapshot = attachment.snapshot;
-  sendJson(webSocket, {
-    type: "ready",
-    sessionId: snapshot.id,
-    state: snapshot.state,
-    cols: snapshot.cols,
-    rows: snapshot.rows,
-    replay: snapshot.replay,
-    writable: snapshot.state === "running",
-  });
-
-  webSocket.on("message", (raw, isBinary) => {
-    if (isBinary) {
-      sendJson(webSocket, {
-        type: "error",
-        code: "binary_message_rejected",
-        message: "Terminal control messages must be JSON text.",
-      });
-      return;
-    }
-
-    let body: unknown;
-    try {
-      body = JSON.parse(raw.toString());
-    } catch {
-      sendJson(webSocket, {
-        type: "error",
-        code: "invalid_json",
-        message: "Terminal message is not valid JSON.",
-      });
-      return;
-    }
-
-    const parsed = clientTerminalMessageSchema.safeParse(body);
-    if (!parsed.success) {
-      sendJson(webSocket, {
-        type: "error",
-        code: "invalid_message",
-        message: "Terminal message does not match the protocol.",
-      });
-      return;
-    }
-
-    try {
-      if (parsed.data.type === "input") terminalSession.write(parsed.data.data);
-      else terminalSession.resize(parsed.data.cols, parsed.data.rows);
-    } catch {
-      sendJson(webSocket, {
-        type: "error",
-        code: "terminal_exited",
-        message: "The terminal session has exited.",
-      });
-    }
-  });
-  webSocket.once("close", attachment.detach);
-  webSocket.once("error", attachment.detach);
 }
 
 function validateBrowserRequest(
@@ -259,7 +209,7 @@ function validBearerToken(request: IncomingMessage, expected: string): boolean {
 
 function isAuthenticated(
   request: IncomingMessage,
-  browserSessions: Set<string>,
+  browserSessions: BrowserSessionStore,
 ): boolean {
   const cookieHeader = request.headers.cookie;
   if (cookieHeader === undefined) return false;
@@ -293,10 +243,4 @@ function writeJson(
     "cache-control": "no-store",
   });
   response.end(JSON.stringify(body));
-}
-
-function sendJson(webSocket: WebSocket, message: ServerTerminalMessage): void {
-  if (webSocket.readyState === WebSocket.OPEN) {
-    webSocket.send(JSON.stringify(message));
-  }
 }

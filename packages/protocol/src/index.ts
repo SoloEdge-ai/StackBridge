@@ -35,6 +35,9 @@ export const clientTerminalMessageSchema = z.discriminatedUnion("type", [
     cols: terminalDimensionSchema,
     rows: terminalDimensionSchema,
   }),
+  z.object({
+    type: z.literal("acquireWriteLease"),
+  }),
 ]);
 
 export type ClientTerminalMessage = z.infer<typeof clientTerminalMessageSchema>;
@@ -52,6 +55,10 @@ export const serverTerminalMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("output"),
     data: z.string(),
+  }),
+  z.object({
+    type: z.literal("writable"),
+    writable: z.boolean(),
   }),
   z.object({
     type: z.literal("exit"),

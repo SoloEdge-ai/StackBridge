@@ -25,7 +25,7 @@ pnpm build
 
 当前工作区：
 
-- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell PTY 与有界重连缓冲。
+- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell PTY、有界重连缓冲与单写者租约。
 - `apps/web`：React/Vite 单终端页面与 xterm.js。
 - `packages/protocol`：Web/Core 共用的运行时消息 schema。
 
@@ -63,6 +63,6 @@ pnpm build
 ## 当前限制
 
 - 会话和最多 1 MiB 的回放缓冲只存在于 Core 内存中；Core 重启后不可恢复。
-- M0-A 只面向单浏览器终端；多客户端写入租约尚未实现。
+- 多页面可同时查看同一终端，但只有一个页面持有写入租约；后打开的页面默认只读，可显式接管输入。
 - 尚未验证中文输入法、全屏 TUI、长时间高吞吐或打包后的干净 Windows 安装环境。
 - 当前 UI 通过 Vite 开发代理访问 Core；生产同源静态文件服务和 Electron 外壳尚未实现。

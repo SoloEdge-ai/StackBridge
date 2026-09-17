@@ -23,6 +23,7 @@ Origin: <allowed-origin>
 ```
 
 成功返回 `204` 并设置本地会话 cookie。令牌或来源不合法时返回 `401` 或 `403`。
+Core 侧认证会话最长保留 8 小时且最多保留 32 个；达到上限时淘汰最早的记录。
 
 ### `GET /v1/auth/status`
 
@@ -53,6 +54,7 @@ Origin: <allowed-origin>
 ```
 
 Core 创建一次真实 PTY 并持有它。网页关闭或刷新不会调用 PTY kill。
+Core 最多同时持有 16 个终端会话；达到上限时先淘汰已退出会话，没有可淘汰项则返回 `503`。
 
 ## WebSocket
 
@@ -82,10 +84,18 @@ Core 创建一次真实 PTY 并持有它。网页关闭或刷新不会调用 PTY
 { "type": "resize", "cols": 132, "rows": 40 }
 ```
 
+```json
+{ "type": "acquireWriteLease" }
+```
+
 服务端实时事件：
 
 ```json
 { "type": "output", "data": "..." }
+```
+
+```json
+{ "type": "writable", "writable": false }
 ```
 
 ```json
@@ -103,5 +113,6 @@ Core 创建一次真实 PTY 并持有它。网页关闭或刷新不会调用 PTY
 - session ID 不是授权凭证；每次 HTTP/WS 操作仍需认证 cookie。
 - Core 为每个终端保留最后 1 MiB UTF-8 安全回放。重新附着先收到 `ready.replay`，随后接收实时事件。
 - 会话和回放仅在内存中。Core 重启后旧 session ID 失效，UI 会要求创建新终端。
-- M0-A 尚未实现单写者租约；多个已认证 WebSocket 同时连接时都可能写入。正式支持 Web/桌面双开前必须补写入租约与明确接管。
+- 同一终端只有一个 WebSocket 持有写入租约。首个连接默认可写，后续连接只读；只读客户端可发送 `acquireWriteLease` 显式接管，原写者随即收到 `writable: false`。写者断开后租约自动转交给最近连接。
+- Core 为每个 WebSocket 设置 2 MiB 待发送上限，Web 渲染队列设置 4 MiB 上限；慢客户端超过上限时以 `1013` 断开，避免无界内存增长。
 - 终端数据仍是不可信字节流，只交给 xterm.js 渲染，不解析为权限、目标身份或控制指令。

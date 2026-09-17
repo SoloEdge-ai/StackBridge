@@ -33,6 +33,9 @@ describe("terminal protocol", () => {
       cols: 80,
       rows: 24,
     });
+    expect(clientTerminalMessageSchema.parse({ type: "acquireWriteLease" })).toEqual({
+      type: "acquireWriteLease",
+    });
   });
 
   it("rejects client attempts to forge server-only events", () => {
@@ -65,5 +68,8 @@ describe("terminal protocol", () => {
     expect(
       serverTerminalMessageSchema.parse({ type: "output", data: "hello\r\n" }),
     ).toEqual({ type: "output", data: "hello\r\n" });
+    expect(
+      serverTerminalMessageSchema.parse({ type: "writable", writable: false }),
+    ).toEqual({ type: "writable", writable: false });
   });
 });
