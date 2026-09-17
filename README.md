@@ -2,7 +2,7 @@
 
 StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
 
-> 当前状态：**M0-A Windows Web 终端原型已实现并验证**。现有代码可以从浏览器连接独立 Core，使用真实 PowerShell/ConPTY，并在刷新后附着同一会话。SSH、Docker、AI 和 Electron 尚未实现。
+> 当前状态：**M0-A Windows Web 终端原型和 M0-B0 目标协议已实现并验证**。现有代码可以从浏览器连接独立 Core，使用真实 PowerShell/ConPTY，并在刷新后附着同一会话；ConnectionProfile、ExecutionTarget、RuntimeBinding 与 ExecutionRequest 已有版本化运行时 schema。SSH/Docker 执行器、AI 和 Electron 尚未实现。
 
 ## 运行 M0-A
 
@@ -53,6 +53,8 @@ pnpm build
 - [原始开发 Agent 交接材料](docs/design/AGENT_HANDOFF.md)
 - [设计评估](docs/ANALYSIS.md)
 - [M0-A 协议](docs/PROTOCOL.md)
+- [M0-B0 目标身份协议](docs/TARGET_PROTOCOL.md)
+- [领域词汇](CONTEXT.md)
 - [项目状态](docs/STATUS.md)
 - [后续交接](docs/HANDOFF.md)
 

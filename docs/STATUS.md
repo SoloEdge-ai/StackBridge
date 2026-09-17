@@ -8,7 +8,8 @@
 | 设计资料 | implemented | verified | 原始规格和交接材料已保留 |
 | 设计评估 | implemented | verified | 已记录优势、风险、缺口和推荐顺序 |
 | M0-A Windows Web 终端 | implemented | verified | 独立 Core、真实 PowerShell/ConPTY、鉴权 HTTP/WS、单写者租约、有界缓冲、输入、UTF-8、resize、Ctrl+C、刷新重连已通过自动化与浏览器冒烟测试 |
-| M0-B SSH/Docker 目标执行 | not-started | blocked | 当前机器未发现 Go 与 Docker CLI；尚无测试目标 |
+| M0-B0 目标协议 | implemented | verified | 四个权威 Zod schema、严格边界、版本字段和语言无关 JSON fixture 已通过 TypeScript 契约测试 |
+| M0-B1 SSH/Docker 目标执行 | not-started | blocked | 当前机器未验证 Go、Docker CLI 或隔离 SSH/Docker fixture；没有进行远端执行实测 |
 | M0-C API Agent | not-started | not-started | 未读取或配置任何模型凭证 |
 | M0-D Codex 集成 | not-started | not-started | 尚未锁定和验证 App Server 版本 |
 | M1–M4 | not-started | not-started | 等待 M0 风险验证 |

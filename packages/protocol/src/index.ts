@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./targets.js";
+
 const terminalDimensionSchema = z.number().int().min(2).max(1_000);
 
 export const createTerminalSessionRequestSchema = z.object({
