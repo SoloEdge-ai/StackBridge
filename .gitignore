@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+out/
+release/
+coverage/
+
+# Runtime and local state
+.stackbridge/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Tooling and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Go build artifacts
+runtime/bin/
+*.test
+
