@@ -1,8 +1,33 @@
 # StackBridge（栈桥）
 
-StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台设计。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
+StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
 
-> 当前状态：**设计基线 / 尚未实现**。仓库目前保存产品规格、原始交接资料和设计评估，不包含已完成的终端、远端运行时或 AI 集成。
+> 当前状态：**M0-A Windows Web 终端原型已实现并验证**。现有代码可以从浏览器连接独立 Core，使用真实 PowerShell/ConPTY，并在刷新后附着同一会话。SSH、Docker、AI 和 Electron 尚未实现。
+
+## 运行 M0-A
+
+要求 Windows、Node.js 22.14+ 和 pnpm 10.33+。
+
+```powershell
+pnpm install
+pnpm dev
+```
+
+打开 `http://127.0.0.1:5173`，把 Core 输出的启动令牌粘贴到登录页。认证后浏览器获得 HttpOnly 本地会话 cookie；启动令牌不会保存到 Web Storage。
+
+常用验证命令：
+
+```powershell
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+当前工作区：
+
+- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell PTY 与有界重连缓冲。
+- `apps/web`：React/Vite 单终端页面与 xterm.js。
+- `packages/protocol`：Web/Core 共用的运行时消息 schema。
 
 ## 核心方向
 
@@ -27,6 +52,7 @@ StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台�
 - [产品与工程实施规格](docs/design/STACKBRIDGE_SPEC.md)
 - [原始开发 Agent 交接材料](docs/design/AGENT_HANDOFF.md)
 - [设计评估](docs/ANALYSIS.md)
+- [M0-A 协议](docs/PROTOCOL.md)
 - [项目状态](docs/STATUS.md)
 - [后续交接](docs/HANDOFF.md)
 
@@ -34,6 +60,9 @@ StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台�
 
 文档职责：`STACKBRIDGE_SPEC.md` 是产品与架构基线；`ANALYSIS.md` 记录评估与待澄清项；`STATUS.md` 和 `HANDOFF.md` 只保存当前实施快照。调整需求或里程碑时先更新规格，再同步快照，避免多个路线版本并存。
 
-## 建议的首个实现切片
+## 当前限制
 
-M0-A：浏览器连接独立 Core，在 Windows 上创建并保持真实 PowerShell PTY，覆盖输入输出、resize、Ctrl+C、刷新后重连，并用自动化测试证明同一 Shell 状态没有因单条命令而重建。
+- 会话和最多 1 MiB 的回放缓冲只存在于 Core 内存中；Core 重启后不可恢复。
+- M0-A 只面向单浏览器终端；多客户端写入租约尚未实现。
+- 尚未验证中文输入法、全屏 TUI、长时间高吞吐或打包后的干净 Windows 安装环境。
+- 当前 UI 通过 Vite 开发代理访问 Core；生产同源静态文件服务和 Electron 外壳尚未实现。

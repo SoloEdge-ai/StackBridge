@@ -1,0 +1,27 @@
+{
+  "name": "@stackbridge/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/main.ts --format esm --platform node --sourcemap --clean --external node-pty",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stackbridge/protocol": "workspace:*",
+    "node-pty": "1.1.0",
+    "ws": "8.21.3",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.3",
+    "@types/ws": "8.18.1",
+    "tsup": "8.5.1",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}
