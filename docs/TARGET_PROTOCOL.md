@@ -1,13 +1,13 @@
 # M0-B0 target identity protocol
 
 Updated: 2026-09-17  
-Status: TypeScript runtime schemas and language-neutral fixtures verified; no live SSH or Docker executor yet.
+Status: TypeScript runtime schemas and language-neutral fixtures verified; the M0-B1 Go consumer and live SSH/Docker executor are also verified.
 
 ## Authority and versioning
 
-The exported Zod schemas in `packages/protocol/src/targets.ts` are the current runtime authority. Every top-level object has `schemaVersion: 1` and is strict: unknown fields are rejected instead of silently removed.
+The exported Zod schemas in `packages/protocol/src/targets.ts` are the current runtime authority. Every top-level object has `schemaVersion: 2` and is strict: unknown fields are rejected instead of silently removed. Version 2 adds container init process start ticks so an exec-time guard can reject restart races.
 
-The fixture at `packages/protocol/fixtures/m0-b0-target-contract.json` contains local, SSH, and Docker examples. A future Go runtime must parse the same fixture in its contract suite rather than maintaining an independent example.
+The fixture at `packages/protocol/fixtures/m0-b0-target-contract.json` contains local, SSH, and Docker examples. The Go runtime parses this same fixture in its contract suite rather than maintaining an independent example.
 
 ## Contracts
 
@@ -29,7 +29,7 @@ The fixture at `packages/protocol/fixtures/m0-b0-target-contract.json` contains 
 
 - `local`: local runtime instance, generation, principal, platform, roots, and capabilities.
 - `ssh`: additionally requires the verified host key, host boot ID, numeric execution UID, resolved shell, and default cwd.
-- `docker`: additionally requires the SSH host identity, daemon identity, full 64-character container ID, start timestamp, running state, numeric execution UID, default cwd, explicit shell-or-no-shell value, and mounts digest.
+- `docker`: additionally requires the SSH host identity, daemon identity, full 64-character container ID, container start timestamp, container init process start ticks, running state, numeric execution UID, default cwd, explicit shell-or-no-shell value, and mounts digest.
 
 Changing any instance identity evidence requires a new `bindingId` or generation. Consumers must compare the current binding rather than trusting a previously parsed object.
 
@@ -45,10 +45,10 @@ The request is an internal trusted-gateway contract, not a payload that may be a
 |---|---|---|
 | Secret embedded in a saved connection | Profiles expose `credentialRef`, not password/private-key fields; strict objects reject unknown keys | Credential vault adapter |
 | Model or client chooses another target | ExecutionRequest has no `targetId` and rejects unknown fields | Gateway must build the request from its server-side Agent Session |
-| SSH host key changes | SSH and Docker bindings require `verifiedHostKey` | Connect flow must stop and require an explicit trust decision |
-| Docker context points at another daemon | Docker binding records `dockerDaemonId` | Handshake must re-verify it before execution |
-| Container is rebuilt or restarted | Binding records full ID, start time, generation, and mounts digest | Binding store and approval check must invalidate stale work |
+| SSH host key changes | SSH and Docker bindings require `verifiedHostKey`; M0-B1 isolates one existing trusted key into a temporary `known_hosts`, pins the runtime connection to that key, and records its fingerprint | First-use and changed-key trust UI |
+| Docker context points at another daemon | Docker binding records `dockerDaemonId`; M0-B1 re-reads it before execution | Durable binding store and user-facing context management |
+| Container is rebuilt or restarted | Binding records full ID, container start time, init process start ticks, generation, and mounts digest; M0-B1 rechecks these and its in-container guard refuses after a restart race | Binding store and approval check must also invalidate stale work |
 | UI tab changes during approval | Request is pinned to `agentSessionId` and `expectedBindingId` | Approval service must re-check both immediately before dispatch |
 | Prompt, OSC, or logs claim a different target | No protocol field derives identity from terminal output | Adapters must treat terminal output as untrusted bytes |
 
-Store-level reference checks, Agent Session schemas, approval capabilities, path containment, operation deduplication, and live runtime handshakes are intentionally deferred to subsequent slices.
+Store-level reference checks, Agent Session schemas, approval capabilities, path containment, and operation deduplication are intentionally deferred to subsequent slices. Live runtime evidence is recorded in [M0-B1 verification](M0-B1-VERIFICATION.md).

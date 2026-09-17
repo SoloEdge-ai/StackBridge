@@ -1,7 +1,7 @@
 {
   "connectionProfiles": [
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "id": "profile.dev-main",
       "displayName": "dev-main SSH",
       "kind": "ssh",
@@ -12,7 +12,7 @@
       "proxyJumpProfileIds": []
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "id": "profile.dev-main.docker",
       "displayName": "dev-main Docker daemon",
       "kind": "docker-daemon",
@@ -21,21 +21,21 @@
   ],
   "executionTargets": [
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "id": "target.local-windows",
       "displayName": "This Windows PC",
       "kind": "local",
       "platform": "windows"
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "id": "target.dev-main",
       "displayName": "dev-main",
       "kind": "ssh",
       "connectionProfileId": "profile.dev-main"
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "id": "target.dev-main.ros-dev",
       "displayName": "dev-main / ros-dev",
       "kind": "docker",
@@ -47,7 +47,7 @@
   ],
   "runtimeBindings": [
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "bindingId": "binding.local.1",
       "targetId": "target.local-windows",
       "targetKind": "local",
@@ -70,7 +70,7 @@
       ]
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "bindingId": "binding.dev-main.1",
       "targetId": "target.dev-main",
       "targetKind": "ssh",
@@ -100,7 +100,7 @@
       ]
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "bindingId": "binding.ros-dev.1",
       "targetId": "target.dev-main.ros-dev",
       "targetKind": "docker",
@@ -111,6 +111,7 @@
       "dockerDaemonId": "daemon.dev-main.rootless",
       "containerId": "8f3a1b2c4d5e6f708f3a1b2c4d5e6f708f3a1b2c4d5e6f708f3a1b2c4d5e6f70",
       "containerStartedAt": "2026-09-17T09:55:00.000Z",
+      "containerInitStartTicks": "424242",
       "containerState": "running",
       "principal": {
         "uid": 1000,
@@ -136,7 +137,7 @@
   ],
   "executionRequests": [
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "requestId": "request.inspect-worktree",
       "operationId": "operation.inspect-worktree",
       "agentSessionId": "agent-session.ros-dev",
@@ -155,7 +156,7 @@
       "approvalId": "approval.inspect-worktree"
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "requestId": "request.configure-environment",
       "operationId": "operation.configure-environment",
       "agentSessionId": "agent-session.ros-dev",
@@ -171,7 +172,7 @@
       "approvalId": "approval.configure-environment"
     },
     {
-      "schemaVersion": 1,
+      "schemaVersion": 2,
       "requestId": "request.edge-characters",
       "operationId": "operation.edge-characters",
       "agentSessionId": "agent-session.ros-dev",

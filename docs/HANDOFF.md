@@ -17,10 +17,13 @@
 - 增加协议、会话、HTTP/WS 和真实 Windows PTY 测试。
 - 建立 ConnectionProfile、ExecutionTarget、RuntimeBinding 与 ExecutionRequest 的版本化严格 schema。
 - 增加覆盖本地、SSH、Docker、argv 与 shell 的语言无关 JSON 契约 fixture，并记录目标身份 ADR 与威胁检查。
+- 增加 Linux Go runtime：JSON stdio 握手、主机 argv、Docker inspect/exec、输出上限及容器 binding 复核。
+- 增加 Core SSH runtime client：系统 OpenSSH、严格 host-key 校验、固定 runtime 路径、指纹捕获、结构化请求和响应上限。
+- 在 `friden-dev-cube` 的真实 Ubuntu 22.04 amd64 宿主与 Ubuntu 22.04 容器上完成 M0-B1 集成验证，包括容器重建后的旧 binding 拒绝。
 
 ## 当前边界
 
-M0-A 最小垂直切片和 M0-B0 目标协议可用，但仍是开发原型。没有 Electron、Go runtime、SSH/Docker 执行器、持久化层、AI provider 或 Codex 集成，也没有远端主机、容器、ARM64 或正式安装包验证。
+M0-A、M0-B0 和 M0-B1 最小垂直切片可用，但仍是开发原型。没有 Electron、持久化层、AI provider 或 Codex 集成；远端 runtime 尚无签名部署/升级机制。已验证一套 Ubuntu 22.04 amd64 SSH/Docker fixture，尚未验证 Ubuntu 24.04、ARM64、跳板机、远端 PTY 或正式安装包。
 
 ## 启动与验证
 
@@ -37,13 +40,15 @@ pnpm test
 pnpm build
 ```
 
-已验证环境：Windows NT `10.0.26200.0`、Node.js `22.14.0`、pnpm `10.33.0`、node-pty `1.1.0`、PowerShell/ConPTY。
+已验证环境：Windows NT `10.0.26200.0`、Node.js `22.14.0`、pnpm `10.33.0`、node-pty `1.1.0`、PowerShell/ConPTY；远端 Ubuntu 22.04.5 LTS amd64、Docker Engine `29.4.0`、Ubuntu 22.04 容器、Go `1.24` 隔离构建容器。
 
 ## 已执行的验证
 
 - 共享协议 schema：合法输入/resize/写入租约/ready/output 与非法边界。
 - 目标协议 schema：ConnectionProfile、ExecutionTarget、RuntimeBinding 与 ExecutionRequest 的本地/SSH/Docker/argv/shell 变体，以及严格未知字段拒绝。
-- 跨语言 fixture：TypeScript 已解析 `m0-b0-target-contract.json`；Go 消费端尚未实现。
+- 跨语言 fixture：TypeScript 与 Go runtime 均解析同一份 `m0-b0-target-contract.json`。
+- 真实 SSH：严格 host-key、连接指纹、runtime/boot/principal 身份、固定路径启动、普通 argv 与复杂字符保持。
+- 真实 Docker：显式 context、daemon/full container ID/start time/UID/GID/cwd/shell/mount digest 绑定，同名文件防串线，重建同名容器后旧 binding 返回 `stale_binding`。
 - 会话生命周期：断开订阅后 PTY 保持、回放有界、UTF-8 边界安全、退出后拒绝写入、终端数量上限。
 - Core HTTP/WS：Origin、启动令牌、HttpOnly cookie、创建终端、输入/resize、单写者接管、刷新重连回放；错误 Origin 和缺失 cookie 的 WebSocket 升级会被拒绝。
 - 浏览器认证会话：8 小时服务端过期、最多 32 个会话并淘汰最早记录。
@@ -55,6 +60,6 @@ pnpm build
 
 ## 下一个最小任务
 
-进入 M0-B1：先验证或安装 Go 与 Docker CLI，并准备隔离的 SSH Linux 与 Docker fixture。让 Go runtime 解析现有 JSON fixture，完成 SSH host-key/runtime 握手和普通 argv 执行，再经已核验宿主进入 Docker；不要直接连接生产主机。
+进入 M0-C：先用 FakeProvider 建立冻结 Agent Session、Tool Gateway、提案/审批/执行状态机和绑定 action hash 的一次性能力票据，再接真实 API provider。必须复用 M0-B 的 RuntimeBinding 复核，不允许模型直接选择 target、binding 或填写 `approved: true`。
 
 开始前应再次检查工作区与 Git 状态，不覆盖用户变更。

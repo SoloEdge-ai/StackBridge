@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const schemaVersion = z.literal(1);
+const schemaVersion = z.literal(2);
 const opaqueId = z
   .string()
   .min(1)
@@ -153,6 +153,7 @@ export const dockerRuntimeBindingSchema = z
     dockerDaemonId: nonEmptyValue,
     containerId: z.string().regex(/^[0-9a-f]{64}$/),
     containerStartedAt: z.string().datetime({ offset: true }),
+    containerInitStartTicks: z.string().regex(/^[1-9][0-9]*$/),
     containerState: z.literal("running"),
     principal: posixPrincipalSchema,
     platform: z.literal("linux"),

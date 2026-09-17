@@ -2,7 +2,7 @@
 
 StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
 
-> 当前状态：**M0-A Windows Web 终端原型和 M0-B0 目标协议已实现并验证**。现有代码可以从浏览器连接独立 Core，使用真实 PowerShell/ConPTY，并在刷新后附着同一会话；ConnectionProfile、ExecutionTarget、RuntimeBinding 与 ExecutionRequest 已有版本化运行时 schema。SSH/Docker 执行器、AI 和 Electron 尚未实现。
+> 当前状态：**M0-A Windows Web 终端、M0-B0 目标协议和 M0-B1 SSH/Docker 执行切片已实现并验证**。现有代码可以从浏览器连接独立 Core，使用真实 PowerShell/ConPTY；也可由 Core 经严格 OpenSSH 连接 Linux Go runtime，并在执行前核验 Docker 实例身份。AI、Electron 和完整产品化能力尚未实现。
 
 ## 运行 M0-A
 
@@ -28,6 +28,7 @@ pnpm build
 - `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell PTY、有界重连缓冲与单写者租约。
 - `apps/web`：React/Vite 单终端页面与 xterm.js。
 - `packages/protocol`：Web/Core 共用的运行时消息 schema。
+- `runtime`：Linux Go runtime，提供身份握手、结构化 argv 与经宿主核验的 Docker 执行。
 
 ## 核心方向
 
@@ -54,6 +55,7 @@ pnpm build
 - [设计评估](docs/ANALYSIS.md)
 - [M0-A 协议](docs/PROTOCOL.md)
 - [M0-B0 目标身份协议](docs/TARGET_PROTOCOL.md)
+- [M0-B1 SSH/Docker 验证记录](docs/M0-B1-VERIFICATION.md)
 - [领域词汇](CONTEXT.md)
 - [项目状态](docs/STATUS.md)
 - [后续交接](docs/HANDOFF.md)
@@ -68,3 +70,4 @@ pnpm build
 - 多页面可同时查看同一终端，但只有一个页面持有写入租约；后打开的页面默认只读，可显式接管输入。
 - 尚未验证中文输入法、全屏 TUI、长时间高吞吐或打包后的干净 Windows 安装环境。
 - 当前 UI 通过 Vite 开发代理访问 Core；生产同源静态文件服务和 Electron 外壳尚未实现。
+- 远端 runtime 目前仍需手工构建和部署；尚无签名分发、自动升级或回滚。

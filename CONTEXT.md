@@ -16,7 +16,7 @@ Avoid the former name `TargetSpec` in new code. The serialized creation and pers
 
 ### RuntimeBinding
 
-An ephemeral, verified attachment between an ExecutionTarget and one concrete runtime instance. It records the identity evidence required for its target kind, including the SSH host key and, for Docker, daemon identity, full container ID, start time, running state, mounts digest, numeric execution UID, resolved shell or explicit lack of one, default cwd, roots, and capabilities.
+An ephemeral, verified attachment between an ExecutionTarget and one concrete runtime instance. It records the identity evidence required for its target kind, including the SSH host key and, for Docker, daemon identity, full container ID, container start time, container init process start ticks, running state, mounts digest, numeric execution UID, resolved shell or explicit lack of one, default cwd, roots, and capabilities.
 
 ### ExecutionRequest
 

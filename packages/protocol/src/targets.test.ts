@@ -14,7 +14,7 @@ import {
 } from "./index.js";
 
 const executionRequestEnvelope = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   agentSessionId: "agent-session.dev-main",
   expectedBindingId: "binding.dev-main.1",
   cwd: "/workspace/stackbridge",
@@ -25,7 +25,7 @@ const executionRequestEnvelope = {
 describe("target protocol", () => {
   it("accepts an SSH connection profile that references credentials instead of containing secrets", () => {
     const profile = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: "profile.dev-main",
       displayName: "dev-main SSH",
       kind: "ssh",
@@ -41,7 +41,7 @@ describe("target protocol", () => {
 
   it("accepts a Docker execution target as a logical selector rather than an instance identity", () => {
     const target = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: "target.dev-main.ros-dev",
       displayName: "dev-main / ros-dev",
       kind: "docker",
@@ -56,7 +56,7 @@ describe("target protocol", () => {
 
   it("accepts an explicit Docker daemon profile", () => {
     const profile = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: "profile.dev-main.docker",
       displayName: "dev-main Docker daemon",
       kind: "docker-daemon",
@@ -69,14 +69,14 @@ describe("target protocol", () => {
   it("accepts local and SSH execution target variants", () => {
     const targets = [
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: "target.local-windows",
         displayName: "This Windows PC",
         kind: "local",
         platform: "windows",
       },
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         id: "target.dev-main",
         displayName: "dev-main",
         kind: "ssh",
@@ -91,7 +91,7 @@ describe("target protocol", () => {
 
   it("requires a Docker binding to carry the complete verified instance identity", () => {
     const binding = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       bindingId: "binding.ros-dev.20260917T095500Z",
       targetId: "target.dev-main.ros-dev",
       targetKind: "docker",
@@ -102,6 +102,7 @@ describe("target protocol", () => {
       dockerDaemonId: "daemon.dev-main.rootless",
       containerId: "8f3a1b2c4d5e6f708f3a1b2c4d5e6f708f3a1b2c4d5e6f708f3a1b2c4d5e6f70",
       containerStartedAt: "2026-09-17T09:55:00.000Z",
+      containerInitStartTicks: "424242",
       containerState: "running",
       principal: { uid: 1000, gid: 1000, name: "developer" },
       platform: "linux",
@@ -133,7 +134,7 @@ describe("target protocol", () => {
 
   it("distinguishes local and SSH runtime bindings", () => {
     const common = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generation: "1",
       arch: "x86_64",
       capabilities: ["process.argv", "fs.read"],
