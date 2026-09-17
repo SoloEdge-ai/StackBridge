@@ -18,7 +18,7 @@ import (
 	stackruntime "github.com/SoloEdge-ai/StackBridge/runtime"
 )
 
-var runtimeVersion = "0.1.0-dev"
+var runtimeVersion = "0.2.0-dev"
 
 type runtimeVersionInfo struct {
 	RuntimeVersion  string `json:"runtimeVersion"`

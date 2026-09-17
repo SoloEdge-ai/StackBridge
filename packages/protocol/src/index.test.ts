@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  approvalDecisionRequestSchema,
   clientTerminalMessageSchema,
+  createConversationRequestSchema,
   createTerminalSessionRequestSchema,
+  createTurnRequestSchema,
   terminalSessionSnapshotSchema,
   serverTerminalMessageSchema,
 } from "./index.js";
@@ -12,6 +15,29 @@ describe("terminal protocol", () => {
     expect(
       createTerminalSessionRequestSchema.parse({ cols: 120, rows: 32 }),
     ).toEqual({ cols: 120, rows: 32 });
+  });
+
+  it("accepts verified SSH and Docker terminal creation intents", () => {
+    expect(createTerminalSessionRequestSchema.parse({
+      kind: "ssh",
+      cols: 120,
+      rows: 32,
+      host: "friden-dev-cube",
+      port: 22,
+      user: "friden",
+    })).toMatchObject({ kind: "ssh", host: "friden-dev-cube" });
+    expect(createTerminalSessionRequestSchema.parse({
+      kind: "docker",
+      cols: 120,
+      rows: 32,
+      host: "friden-dev-cube",
+      port: 22,
+      user: "friden",
+      contextName: "default",
+      container: "stackbridge-m0b1-ubuntu22",
+      containerUser: "root",
+      cwd: "/workspace",
+    })).toMatchObject({ kind: "docker", container: "stackbridge-m0b1-ubuntu22" });
   });
 
   it("rejects dimensions outside a usable terminal range", () => {
@@ -71,5 +97,46 @@ describe("terminal protocol", () => {
     expect(
       serverTerminalMessageSchema.parse({ type: "writable", writable: false }),
     ).toEqual({ type: "writable", writable: false });
+  });
+});
+
+describe("AI terminal workflow protocol", () => {
+  it("keeps the browser request limited to user intent and current terminal", () => {
+    expect(createConversationRequestSchema.parse({
+      terminalSessionId: "b0dc5ee4-b313-4af8-9acd-01ef138e51d7",
+      model: "gpt-5.6-sol",
+    })).toEqual({
+      schemaVersion: 2,
+      terminalSessionId: "b0dc5ee4-b313-4af8-9acd-01ef138e51d7",
+      model: "gpt-5.6-sol",
+    });
+    expect(createTurnRequestSchema.parse({
+      terminalSessionId: "b0dc5ee4-b313-4af8-9acd-01ef138e51d7",
+      message: "这个错误是什么意思？",
+    })).toMatchObject({ message: "这个错误是什么意思？" });
+    expect(() => createTurnRequestSchema.parse({
+      terminalSessionId: "b0dc5ee4-b313-4af8-9acd-01ef138e51d7",
+      message: "run it",
+      bindingId: "forged-binding",
+    })).toThrow();
+  });
+
+  it("accepts only explicit proposal decisions", () => {
+    expect(approvalDecisionRequestSchema.parse({ decision: "execute" })).toEqual({
+      schemaVersion: 2,
+      decision: "execute",
+    });
+    expect(approvalDecisionRequestSchema.parse({ decision: "insert" })).toEqual({
+      schemaVersion: 2,
+      decision: "insert",
+    });
+    expect(approvalDecisionRequestSchema.parse({ decision: "reject" })).toEqual({
+      schemaVersion: 2,
+      decision: "reject",
+    });
+    expect(() => approvalDecisionRequestSchema.parse({
+      decision: "execute",
+      command: "forged command",
+    })).toThrow();
   });
 });

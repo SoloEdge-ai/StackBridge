@@ -8,21 +8,14 @@
 - Core 默认仅监听 `127.0.0.1:7331`。
 - 开发 UI 由 Vite 在 `127.0.0.1:5173` 提供，并代理 `/v1` HTTP 与 WebSocket。
 - Core 拒绝非 loopback `Host`；有副作用的 HTTP 请求和所有 WebSocket 升级必须带显式允许的 `Origin`。
-- 每次 Core 启动生成随机启动令牌，也可用 `STACKBRIDGE_LAUNCH_TOKEN` 固定。令牌通过 `Authorization: Bearer` 只交换一次，不放入 URL 或 Web Storage。
+- UI 通过同源 `POST /v1/auth/session` 自动建立本机浏览器会话，不要求用户输入令牌。该请求仍受 loopback `Host` 与允许的 `Origin` 双重校验，其他站点不能创建会话。
 - 认证成功后使用 `HttpOnly; SameSite=Strict; Path=/` cookie。开发环境为本地 HTTP，因此未设置 `Secure`。
 
 ## HTTP
 
 ### `POST /v1/auth/session`
 
-请求头：
-
-```text
-Authorization: Bearer <launch-token>
-Origin: <allowed-origin>
-```
-
-成功返回 `204` 并设置本地会话 cookie。令牌或来源不合法时返回 `401` 或 `403`。
+无需请求体。成功返回 `204` 并设置本地会话 cookie；来源不合法时返回 `403`。
 Core 侧认证会话最长保留 8 小时且最多保留 32 个；达到上限时淘汰最早的记录。
 
 ### `GET /v1/auth/status`
@@ -55,6 +48,10 @@ Core 侧认证会话最长保留 8 小时且最多保留 32 个；达到上限�
 
 Core 创建一次真实 PTY 并持有它。网页关闭或刷新不会调用 PTY kill。
 Core 最多同时持有 16 个终端会话；达到上限时先淘汰已退出会话，没有可淘汰项则返回 `503`。
+
+### `DELETE /v1/terminal-sessions/:id`
+
+显式关闭终端标签对应的 PTY，断开其 WebSocket，并释放本地会话容量。SSH/Docker 终端还会关闭关联的 runtime 管理连接。普通页面刷新不会调用此接口，因此仍可重新附着原终端。
 
 ## WebSocket
 

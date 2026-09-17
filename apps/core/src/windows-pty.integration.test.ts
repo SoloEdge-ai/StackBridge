@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
+import { ensurePowerShellIntegration } from "./shell-integration.js";
 import { TerminalSessionManager } from "./terminal-session.js";
 import { createWindowsPtyFactory } from "./windows-pty.js";
 
@@ -9,8 +13,12 @@ describe("Windows PowerShell PTY", () => {
   windowsIt(
     "keeps shell state across reconnect and handles Ctrl+C",
     async () => {
+      const dataDirectory = mkdtempSync(join(tmpdir(), "stackbridge-shell-test-"));
       const manager = new TerminalSessionManager(
-        createWindowsPtyFactory({ cwd: process.cwd() }),
+        createWindowsPtyFactory({
+          cwd: process.cwd(),
+          integrationPath: ensurePowerShellIntegration(dataDirectory),
+        }),
       );
       const session = manager.create({ cols: 100, rows: 30 });
       let output = "";
@@ -20,7 +28,7 @@ describe("Windows PowerShell PTY", () => {
       });
 
       try {
-        await waitForOutput(() => output, "PS ");
+        await waitForOutput(() => output, "PS ", 15_000);
         session.write(
           "$env:STACKBRIDGE_PTY_TEST='kept'; Write-Output ('SB_'+'READY')\r",
         );
@@ -73,8 +81,18 @@ describe("Windows PowerShell PTY", () => {
           "SB_AFTER_CTRL_C",
           10_000,
         );
+        await waitForCondition(() => (
+          reconnected?.commands().some((command) =>
+            command.command.includes("SB_AFTER_") && command.output.includes("SB_AFTER_CTRL_C"),
+          ) === true && reconnected.context().shellState === "idle"
+        ));
+        expect(reconnected?.context()).toMatchObject({
+          shellState: "idle",
+          shell: "powershell",
+        });
       } finally {
         manager.disposeAll();
+        rmSync(dataDirectory, { recursive: true, force: true });
       }
     },
     20_000,
@@ -91,6 +109,17 @@ async function waitForOutput(
     if (Date.now() >= deadline) {
       throw new Error(`Timed out waiting for ${marker}. Output: ${read()}`);
     }
+    await delay(25);
+  }
+}
+
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error("Timed out waiting for condition");
     await delay(25);
   }
 }

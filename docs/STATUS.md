@@ -4,24 +4,26 @@
 
 | 范围 | 代码状态 | 验证状态 | 说明 |
 |---|---|---|---|
-| 仓库初始化 | implemented | verified | 本地 Git 仓库与私有 GitHub 仓库已建立 |
-| 设计资料 | implemented | verified | 原始规格和交接材料已保留 |
-| 设计评估 | implemented | verified | 已记录优势、风险、缺口和推荐顺序 |
-| M0-A Windows Web 终端 | implemented | verified | 独立 Core、真实 PowerShell/ConPTY、鉴权 HTTP/WS、单写者租约、有界缓冲、输入、UTF-8、resize、Ctrl+C、刷新重连已通过自动化与浏览器冒烟测试 |
-| M0-B0 目标协议 | implemented | verified | 四个权威 Zod schema、严格边界、版本字段和语言无关 JSON fixture 已通过 TypeScript 契约测试 |
-| M0-B1 SSH/Docker 目标执行 | implemented | verified | Core 经严格 OpenSSH 启动固定路径 Go runtime；真实 Ubuntu 22.04 amd64 宿主与容器已验证握手、指纹、结构化 argv、同名文件防串线、Docker 身份复核和容器重建后旧 binding 拒绝 |
-| M0-B2 runtime 自动同步与远端 UI | implemented | verified | UI 可连接 SSH/Docker 并手动执行结构化 argv；一次性授权绑定目标与完整部署提案；Core 把固定清单中的 amd64/arm64 产物同步到 `~/.sbridge`，校验摘要、原子切换并支持回滚；Ubuntu 22.04 amd64 实机已验证，Ubuntu 24.04 完成容器冒烟，ARM64 仅完成构建 |
-| M0-C API Agent | not-started | not-started | 未读取或配置任何模型凭证 |
-| M0-D Codex 集成 | not-started | not-started | 尚未锁定和验证 App Server 版本 |
-| M1–M4 | not-started | not-started | 等待 M0 风险验证 |
+| 仓库与设计资料 | implemented | verified | 本地 Git 与 `SoloEdge-ai/StackBridge` 私有远端已建立，原始资料保留在 `docs/design/` |
+| Windows 真实终端 | implemented | verified | PowerShell/ConPTY、xterm.js、输入、Unicode、resize、Ctrl+C、单写者租约和刷新回放通过自动化与浏览器验收 |
+| SSH/Docker 目标身份 | implemented | verified | 严格 OpenSSH、host key、runtime/boot、Docker daemon/full ID/start ticks/UID/cwd/shell binding 已在真实 Ubuntu 22.04 验证 |
+| runtime 自动同步 | implemented | verified | linux/amd64、arm64 `0.2.0-dev` 产物可确认后同步到登录用户 `~/.sbridge`；摘要、原子切换和回滚保留 |
+| SSH/Docker 交互 PTY | implemented | verified | UI 可创建真实 SSH Zsh 和 Ubuntu 22.04 Docker Bash PTY；实时输入、输出、cwd、状态、Ctrl+C 和刷新重附着通过实机验收 |
+| 终端工作台 UI | implemented | verified | 终端主画布、活动栏、紧凑标签、环境路径、停靠 AI 面板和标签关闭已通过 Chromium Playwright；关闭标签会释放 PTY/远端会话容量 |
+| Shell 集成与命令块 | implemented | verified | PowerShell/Bash/Zsh 会话级集成；命令、输出、目录、退出码、环境归属和运行中快照有自动化覆盖 |
+| 连续 AI 对话 | implemented | partially-verified | Codex App Server、模型列表、连续 thread、跨环境时间线、64 KiB 上下文、停止生成和历史恢复已实现；Fake Codex 通过，真实 OAuth 被当前网络地区限制阻塞 |
+| 确认后同 Shell 执行 | implemented | verified-with-fake-ai | 不可变建议、五分钟过期、冻结作用域、核验环境、存活/空闲/空输入校验、写入租约、批准前持久化 operation、去重、实时可见执行和结果关联通过测试 |
+| 本地持久化 | implemented | verified | SQLite 保存对话/建议/命令元数据，输出分块；7 天/1 GiB 清理和 migration 前备份有测试 |
+| Electron/安装包 | not-started | not-started | 明确不属于本次交付 |
+| 文件修改/无人值守 Agent | not-started | not-started | 明确不属于本次交付 |
 
-## M0-A 尚未覆盖
+## 已知边界
 
-- 中文输入法组合态、vim/top 等全屏程序和持续高吞吐压力。
-- Core 重启后的会话恢复、SQLite 持久化和日志分块。
-- 生产同源 UI、Electron 外壳和 Windows 安装包。
+- 当前受管远端 PTY由 Core 的系统 OpenSSH 进程持有。页面刷新可重附着；Core 重启、SSH 短断线后的远端 supervisor 恢复仍待 runtime 协议 3。
+- 手输 `ssh`/`docker exec -it` 可正常原生使用并记录未核验环境进入/退出；需要确认执行时使用“新建连接”建立完整 binding。
+- 未适配 Shell、tmux/screen、提权 Shell、密码/MFA askpass 和没有交互 Shell 的容器降级为解释/复制建议，不开放自动提交。
+- Shell 随机标记能隔离普通输出，但不是防御同 UID 恶意进程的强认证通道；受限命名管道/Unix socket 仍是后续安全加固项，runtime binding 不受该标记授权。
+- 当前网络访问 OpenAI OAuth 返回 `unsupported_country_region_territory`；真实账号最终验收需要在受支持网络完成。
+- 全屏 TUI、中文输入法组合输入、长时间高吞吐、生产同源服务和干净 Windows 安装环境尚未形成完整验证矩阵。
 
-“verified” 仅适用于表中说明的原型范围，不代表 M1 的完整终端能力或正式产品已经完成。
-
-M0-B1 的环境、证据、复现方式与未覆盖边界见 [SSH/Docker 验证记录](M0-B1-VERIFICATION.md)。
-M0-B2 的部署结构、UI 实测与未覆盖边界见 [runtime 自动同步验证记录](M0-B2-VERIFICATION.md)。
+详细证据见 [AI 终端验证记录](AI-TERMINAL-VERIFICATION.md)。

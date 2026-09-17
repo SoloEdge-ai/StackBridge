@@ -1,16 +1,20 @@
-import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { CodexAppServer, defaultCodexDirectories } from "./codex-app-server.js";
+import { ConversationService } from "./conversation-service.js";
 import {
   RemoteRuntimeManager,
   runtimeArtifactManifestSchema,
   type RuntimeArtifact,
 } from "./remote-runtime-manager.js";
 import { RemoteSessionManager } from "./remote-session-manager.js";
+import { createRemotePtyLauncher } from "./remote-pty.js";
 import { createCoreServer } from "./server.js";
+import { ensurePowerShellIntegration } from "./shell-integration.js";
 import { TerminalSessionManager } from "./terminal-session.js";
 import { createWindowsPtyFactory } from "./windows-pty.js";
+import { WorkspaceStore } from "./workspace-store.js";
 
 if (process.platform !== "win32") {
   throw new Error("M0-A currently supports the Windows PowerShell PTY only.");
@@ -18,12 +22,14 @@ if (process.platform !== "win32") {
 
 const host = "127.0.0.1";
 const port = readPort(process.env.STACKBRIDGE_CORE_PORT, 7_331);
-const launchToken =
-  process.env.STACKBRIDGE_LAUNCH_TOKEN ?? randomBytes(24).toString("base64url");
 const terminalCwd =
   process.env.STACKBRIDGE_TERMINAL_CWD ??
   process.env.INIT_CWD ??
   process.cwd();
+const dataDirectory = resolveDataDirectory();
+mkdirSync(dataDirectory, { recursive: true });
+const powerShellIntegration = ensurePowerShellIntegration(dataDirectory);
+const workspaceStore = new WorkspaceStore(dataDirectory);
 const allowedOrigins = (
   process.env.STACKBRIDGE_ALLOWED_ORIGINS ??
   `http://127.0.0.1:5173,http://localhost:5173,http://${host}:${port}`
@@ -33,7 +39,11 @@ const allowedOrigins = (
   .filter(Boolean);
 
 const terminalSessions = new TerminalSessionManager(
-  createWindowsPtyFactory({ cwd: terminalCwd }),
+  createWindowsPtyFactory({
+    cwd: terminalCwd,
+    integrationPath: powerShellIntegration,
+  }),
+  { onCommandCompleted: (command) => workspaceStore.recordCommand(command) },
 );
 const repositoryRoot = process.env.INIT_CWD ?? process.cwd();
 const runtimeManifestPath = resolve(
@@ -56,25 +66,45 @@ const runtimeArtifacts = runtimeManifest.artifacts.map((artifact) => ({
 const remoteSessions = new RemoteSessionManager(
   new RemoteRuntimeManager({ artifacts: runtimeArtifacts }),
 );
+const remotePtyLauncher = createRemotePtyLauncher(remoteSessions, terminalCwd);
+const codexDirectories = defaultCodexDirectories(dataDirectory);
+const ai = new CodexAppServer({
+  ...codexDirectories,
+  ...(process.env.STACKBRIDGE_CODEX_BIN === undefined
+    ? {}
+    : { command: process.env.STACKBRIDGE_CODEX_BIN }),
+});
+const conversations = new ConversationService(
+  terminalSessions,
+  ai,
+  () => new Date(),
+  workspaceStore,
+);
 const core = createCoreServer({
-  launchToken,
   allowedOrigins,
   terminalSessions,
   remoteSessions,
+  remotePtyLauncher,
+  conversations,
+  ai,
 });
 
 await core.listen({ host, port });
 
 console.log(`StackBridge Core listening on http://${host}:${port}`);
 console.log(`Terminal working directory: ${terminalCwd}`);
+console.log(`StackBridge data directory: ${dataDirectory}`);
 console.log(`Bundled remote runtimes: ${runtimeArtifacts.map((item) => item.arch).join(", ") || "none"}`);
-console.log(`Launch token: ${launchToken}`);
 
 let closing = false;
 async function shutdown(): Promise<void> {
   if (closing) return;
   closing = true;
-  await core.close();
+  try {
+    await core.close();
+  } finally {
+    workspaceStore.close();
+  }
 }
 
 process.once("SIGINT", () => {
@@ -91,4 +121,14 @@ function readPort(raw: string | undefined, fallback: number): number {
     throw new Error("STACKBRIDGE_CORE_PORT must be an integer from 1 to 65535.");
   }
   return parsed;
+}
+
+function resolveDataDirectory(): string {
+  const configured = process.env.STACKBRIDGE_DATA_DIR;
+  if (configured !== undefined && configured.trim() !== "") return resolve(configured);
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData === undefined || localAppData.trim() === "") {
+    throw new Error("LOCALAPPDATA is required unless STACKBRIDGE_DATA_DIR is set");
+  }
+  return resolve(localAppData, "StackBridge");
 }

@@ -4,6 +4,7 @@ package stackruntime
 
 import (
 	"context"
+	"syscall"
 	"testing"
 )
 
@@ -33,6 +34,9 @@ func TestContainerProbeReturnsStructuredIdentityWithoutExternalUserTools(t *test
 	}
 	if response.Result.InitStartTicks != initStartTicks || response.Result.Principal.UID < 0 || response.Result.DefaultCWD == "" {
 		t.Fatalf("unexpected container probe result: %#v", response.Result)
+	}
+	if syscall.Access("/bin/bash", 1) == nil && (response.Result.Shell == nil || *response.Result.Shell != "/bin/bash") {
+		t.Fatalf("container probe must prefer Bash when it is available: %#v", response.Result)
 	}
 }
 

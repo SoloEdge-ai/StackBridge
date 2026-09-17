@@ -118,13 +118,17 @@ export class RemoteSessionManager implements RemoteSessionService {
           });
       const sessionId = randomUUID();
       const snapshot: RemoteSessionSnapshot = {
+        schemaVersion: 2,
         sessionId,
+        bindingId: randomUUID(),
         targetKind: docker === undefined ? "ssh" : "docker",
         host: request.host,
         user: request.user,
         hostKeyFingerprint: connection.hostKeyFingerprint,
         runtimeVersion: connection.identity.runtimeVersion,
         runtimeDigest: connection.identity.runtimeDigest,
+        runtimeInstanceId: connection.identity.runtimeInstanceId,
+        hostBootId: connection.identity.hostBootId,
         arch: connection.identity.arch,
         defaultCwd: docker?.defaultCwd ?? connection.identity.defaultCwd,
         shell: docker?.shell ?? connection.identity.shell,

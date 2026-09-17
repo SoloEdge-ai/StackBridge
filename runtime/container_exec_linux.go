@@ -55,7 +55,7 @@ func RunContainerProbe(expectedInitStartTicks string) ContainerProbeResponse {
 		principalName = currentUser.Username
 	}
 	var shell *string
-	for _, candidate := range []string{"/bin/sh", "/bin/bash"} {
+	for _, candidate := range []string{"/bin/bash", "/usr/bin/bash", "/bin/zsh", "/usr/bin/zsh", "/bin/sh"} {
 		if syscall.Access(candidate, 1) == nil {
 			resolved := candidate
 			shell = &resolved

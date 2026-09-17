@@ -9,6 +9,7 @@ import type {
 export interface WindowsPtyFactoryOptions {
   cwd: string;
   shell?: string;
+  integrationPath?: string;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -21,19 +22,46 @@ export function createWindowsPtyFactory(
 
   const shell = options.shell ?? "powershell.exe";
   const environment = toPtyEnvironment(options.env ?? process.env);
+  return ({ cols, rows, shellIntegrationToken }: PtySpawnOptions) => {
+    const args = options.integrationPath === undefined
+      ? ["-NoLogo"]
+      : [
+          "-NoLogo",
+          "-NoExit",
+          "-Command",
+          `. '${options.integrationPath.replaceAll("'", "''")}' -StackBridgeIntegrationToken '${(shellIntegrationToken ?? "").replaceAll("'", "''")}'`,
+        ];
+    const process = createNodePtyProcess(shell, args, {
+      cols,
+      rows,
+      cwd: options.cwd,
+      env: environment,
+    });
+    return process;
+  };
+}
 
-  return ({ cols, rows }: PtySpawnOptions) =>
-    new NodePtyProcess(
-      spawn(shell, ["-NoLogo", "-NoProfile"], {
-        name: "xterm-256color",
-        cols,
-        rows,
-        cwd: options.cwd,
-        env: environment,
-        useConpty: true,
-        useConptyDll: true,
-      }),
-    );
+export function createNodePtyProcess(
+  command: string,
+  args: string[],
+  options: {
+    cols: number;
+    rows: number;
+    cwd: string;
+    env?: NodeJS.ProcessEnv;
+  },
+): PtyProcess {
+  return new NodePtyProcess(
+    spawn(command, args, {
+      name: "xterm-256color",
+      cols: options.cols,
+      rows: options.rows,
+      cwd: options.cwd,
+      env: toPtyEnvironment(options.env ?? process.env),
+      useConpty: process.platform === "win32",
+      useConptyDll: process.platform === "win32",
+    }),
+  );
 }
 
 class NodePtyProcess implements PtyProcess {

@@ -77,11 +77,11 @@
 
 逻辑名字不等于实例身份。相同容器名被重建后，旧审批、旧进程 ID 和旧绑定必须失效。同一容器重启而 ID 不变，也需要更新启动 epoch。仅比较容器名称或 ID 不够。
 
-### 2.2 Agent Session 必须绑定目标
+### 2.2 连续对话与冻结 Agent Session
 
-一个 Agent 会话默认只能操作一个目标及授权根目录。工具实现从服务端会话中注入 target/binding，不能让模型通过填写任意 `targetId` 获得权限。
+用户看到的 `ConversationSession` 对应一个连续的 Codex thread，可以包含多个终端和环境的历史。每次提问再创建一个 `AgentSession`，冻结当时的终端、环境层、binding、cwd、Shell 与输入版本。工具实现从该服务端作用域注入 target/binding，不能让模型通过填写任意 `targetId` 获得权限。
 
-从宿主机切到容器时创建新会话或带摘要的新分支。任务开始时冻结目标，用户切换 UI 焦点不能改变正在执行的任务目标。
+从宿主机切到容器时，对话继续并插入带环境归属的时间线；已经开始的 turn、建议卡和执行操作仍固定在原作用域。用户切换 UI 焦点只能改变下一次提问的默认环境，不能改变正在执行的任务目标。
 
 跨目标读取或操作必须获得显式授权，并保留分别标注的上下文。首版不做隐式多主机 Agent。
 
@@ -253,17 +253,17 @@ xterm.js 输出按官方流控建议控制吞吐，不能以无限累积 JS 字�
 
 历史重跑先展示当前目标、目录和环境；不会因为曾经批准过某条命令就无限期自动执行。
 
-### 6.3 人工 Shell 与 Agent Shell
+### 6.3 确认后在同一人工 Shell 执行
 
-人工终端与 Agent 专用执行区分离。Agent 不向正在运行 vim、等待密码或执行交互程序的人工终端注入文本。
+首个 AI 终端版本把经确认的命令提交到建议生成时的同一个人工 Shell，从而自然保留 `source`、`cd`、`export`、虚拟环境、alias 和 shell function。模型本身没有终端写入能力；Core 拥有不可变建议、批准和提交状态机。
 
-人工终端里的 `source`、`cd`、`export` 不会天然复制到新建执行进程。Docker 新 exec 也不自动继承另一交互 shell 的临时环境。[R4]
+提交只允许发生在原 Shell 仍存在、原 binding/cwd/context/input 版本未变化、Shell 空闲、输入行为空且批准页面持有写入租约时。命令通过 Shell 侧受管提交机制执行；不向正在运行 vim、top、等待密码或其他前台程序的终端追加文本。
 
-通过版本化 `EnvironmentProfile` 定义 shell、cwd、用户批准的初始化脚本、环境白名单和额外参数。ROS2、Conda 等初始化在每个新任务执行上下文中重建，并显示 profile 版本。
+建议默认五分钟过期并且只能执行一次。批准前持久化 `operationId`；重复点击、刷新和网络重试只查询同一次操作。目标、容器实例或输入状态变化后，旧建议变为 stale，必须在新的作用域重新生成和确认。
 
-需要连续共享环境的工作流声明 `sharedShellSession`，由 runtime 保持专用 Shell；独立任务则明确重新初始化。不要导出整个环境并上传模型，避免密钥泄露。
+模型只获得当前身份、目录、最近命令及有界输出，不上传整个环境变量表。独立后台任务或未来的无人值守 Agent 仍应使用隔离的 Agent Shell/`EnvironmentProfile`；该模式不复用人工终端状态，也不得和本节的同 Shell 确认流程混为一谈。
 
-MVP 不承诺迁移任意 alias、shell function、激活状态或后台作业。用户临时终端状态与 Agent 环境不同，必须有可见提示。
+当前同 Shell 模式不承诺把状态迁移到另一个终端、重建后的容器或 Core 重启后的新本地 Shell。无法核验环境时仍可解释输出和复制建议，但禁用自动提交。
 
 ## 7. 功能规格与优先级
 
@@ -450,10 +450,14 @@ interface ExecutionRequest {
 | GET /v1/targets/:id/containers | 发现指定 daemon 的容器 |
 | POST /v1/terminal-sessions | 创建持久终端 |
 | WS /v1/terminal-sessions/:id/stream | 输入/输出/resize，含写入租约 |
-| POST /v1/agent-sessions | 创建绑定目标的 AI 会话 |
-| POST /v1/agent-sessions/:id/turns | 提交带上下文的任务 |
+| GET /v1/terminal-sessions/:id/context | 当前环境、Shell 状态和命令引用 |
+| GET /v1/terminal-sessions/:id/commands | 分页读取命令块与输出 |
+| POST /v1/conversations | 创建连续对话与 Codex thread |
+| POST /v1/conversations/:id/turns | 冻结 AgentSession 并提交带上下文的提问 |
 | POST /v1/approvals/:id/decision | 用户审批；校验来源与当前 binding |
-| POST /v1/jobs/:id/cancel | 请求停止运行任务 |
+| GET /v1/operations/:id | 查询确认执行的幂等状态 |
+| POST /v1/conversations/:id/stop | 停止 AI 生成，不中断终端任务 |
+| /v1/ai/account/* | ChatGPT 登录状态、开始/取消登录与退出 |
 | WS /v1/events | 任务/审批/AI 状态事件，按序号补发 |
 
 所有状态修改都需要认证和 runtime schema 校验。文件工具等内部 API 也必须通过同一权限核心，不能存在为方便调试而绕过网关的生产端点。

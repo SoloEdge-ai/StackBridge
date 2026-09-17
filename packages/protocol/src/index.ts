@@ -4,10 +4,43 @@ export * from "./targets.js";
 
 const terminalDimensionSchema = z.number().int().min(2).max(1_000);
 
-export const createTerminalSessionRequestSchema = z.object({
+const terminalDimensions = {
   cols: terminalDimensionSchema,
   rows: terminalDimensionSchema,
-});
+};
+
+const localTerminalSessionRequestSchema = z.object({
+  ...terminalDimensions,
+  kind: z.literal("local").optional(),
+}).strict();
+
+const sshTerminalSessionRequestSchema = z.object({
+  ...terminalDimensions,
+  kind: z.literal("ssh"),
+  host: z.string().trim().min(1).max(512),
+  port: z.number().int().min(1).max(65_535),
+  user: z.string().trim().min(1).max(512),
+  deploymentApprovalId: z.uuid().optional(),
+}).strict();
+
+const dockerTerminalSessionRequestSchema = z.object({
+  ...terminalDimensions,
+  kind: z.literal("docker"),
+  host: z.string().trim().min(1).max(512),
+  port: z.number().int().min(1).max(65_535),
+  user: z.string().trim().min(1).max(512),
+  contextName: z.string().trim().min(1).max(512),
+  container: z.string().trim().min(1).max(512),
+  containerUser: z.string().trim().min(1).max(512),
+  cwd: z.string().startsWith("/").max(4_096),
+  deploymentApprovalId: z.uuid().optional(),
+}).strict();
+
+export const createTerminalSessionRequestSchema = z.union([
+  sshTerminalSessionRequestSchema,
+  dockerTerminalSessionRequestSchema,
+  localTerminalSessionRequestSchema,
+]);
 
 export type CreateTerminalSessionRequest = z.infer<
   typeof createTerminalSessionRequestSchema
@@ -77,6 +110,7 @@ export const serverTerminalMessageSchema = z.discriminatedUnion("type", [
 export type ServerTerminalMessage = z.infer<typeof serverTerminalMessageSchema>;
 
 const remoteText = z.string().trim().min(1).max(512);
+const schemaVersion2 = z.literal(2).default(2);
 
 export const createRemoteSessionRequestSchema = z.object({
   host: remoteText,
@@ -110,13 +144,17 @@ export const deploymentProposalSchema = z.object({
 export type DeploymentProposal = z.infer<typeof deploymentProposalSchema>;
 
 export const remoteSessionSnapshotSchema = z.object({
+  schemaVersion: schemaVersion2,
   sessionId: z.uuid(),
+  bindingId: z.uuid(),
   targetKind: z.enum(["ssh", "docker"]),
   host: remoteText,
   user: remoteText,
   hostKeyFingerprint: remoteText,
   runtimeVersion: remoteText,
   runtimeDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  runtimeInstanceId: remoteText,
+  hostBootId: remoteText,
   arch: remoteText,
   defaultCwd: z.string().startsWith("/"),
   shell: z.string().startsWith("/").nullable(),
@@ -145,3 +183,121 @@ export const remoteExecutionResultSchema = z.object({
 }).strict();
 
 export type RemoteExecutionResult = z.infer<typeof remoteExecutionResultSchema>;
+
+export const createConversationRequestSchema = z.object({
+  schemaVersion: schemaVersion2,
+  terminalSessionId: z.uuid(),
+  model: z.string().trim().min(1).max(128).optional(),
+}).strict();
+
+export type CreateConversationRequest = z.infer<
+  typeof createConversationRequestSchema
+>;
+
+export const createTurnRequestSchema = z.object({
+  schemaVersion: schemaVersion2,
+  terminalSessionId: z.uuid(),
+  message: z.string().trim().min(1).max(32_768),
+  commandIds: z.array(z.uuid()).max(20).optional(),
+}).strict();
+
+export type CreateTurnRequest = z.infer<typeof createTurnRequestSchema>;
+
+export const approvalDecisionRequestSchema = z.object({
+  schemaVersion: schemaVersion2,
+  decision: z.enum(["execute", "insert", "reject"]),
+}).strict();
+
+export type ApprovalDecisionRequest = z.infer<
+  typeof approvalDecisionRequestSchema
+>;
+
+export const aiAccountStatusSchema = z.object({
+  schemaVersion: schemaVersion2,
+  available: z.boolean(),
+  authenticated: z.boolean(),
+  accountLabel: z.string().optional(),
+  loginType: z.string().optional(),
+  error: z.string().optional(),
+}).strict();
+
+export type AiAccountStatus = z.infer<typeof aiAccountStatusSchema>;
+
+export const commandProposalSchema = z.object({
+  schemaVersion: schemaVersion2,
+  id: z.uuid(),
+  conversationId: z.uuid(),
+  agentSessionId: z.uuid(),
+  terminalSessionId: z.uuid(),
+  environmentFrameId: z.string().min(1),
+  environmentKind: z.enum(["local", "ssh", "docker"]).default("local"),
+  environmentLabel: z.string().min(1).default("当前环境"),
+  host: z.string().min(1).optional(),
+  containerId: z.string().min(1).optional(),
+  bindingId: z.string().min(1).optional(),
+  purpose: z.string().min(1),
+  command: z.string().min(1),
+  cwd: z.string(),
+  shell: z.string(),
+  user: z.string(),
+  createdAt: z.string().datetime({ offset: true }),
+  expiresAt: z.string().datetime({ offset: true }),
+  status: z.enum([
+    "pending",
+    "inserted",
+    "rejected",
+    "accepted",
+    "expired",
+    "stale",
+  ]),
+  operationId: z.uuid().optional(),
+}).strict();
+
+export type CommandProposal = z.infer<typeof commandProposalSchema>;
+
+export const conversationMessageSchema = z.object({
+  schemaVersion: schemaVersion2,
+  id: z.uuid(),
+  role: z.enum(["user", "assistant", "timeline"]),
+  content: z.string(),
+  createdAt: z.string().datetime({ offset: true }),
+  agentSessionId: z.uuid().optional(),
+  proposalIds: z.array(z.uuid()).optional(),
+}).strict();
+
+export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
+
+export const conversationSnapshotSchema = z.object({
+  schemaVersion: schemaVersion2,
+  id: z.uuid(),
+  title: z.string(),
+  model: z.string(),
+  codexThreadId: z.string().optional(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+  messages: z.array(conversationMessageSchema),
+  proposals: z.array(commandProposalSchema),
+}).strict();
+
+export type ConversationSnapshot = z.infer<typeof conversationSnapshotSchema>;
+
+export const operationSnapshotSchema = z.object({
+  schemaVersion: schemaVersion2,
+  id: z.uuid(),
+  proposalId: z.uuid(),
+  status: z.enum([
+    "accepted",
+    "running",
+    "completed",
+    "failed",
+    "interrupted",
+    "unknown",
+  ]),
+  command: z.string(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+  commandBlockId: z.uuid().optional(),
+  exitCode: z.number().int().optional(),
+}).strict();
+
+export type OperationSnapshot = z.infer<typeof operationSnapshotSchema>;

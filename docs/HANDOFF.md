@@ -2,33 +2,28 @@
 
 更新日期：2026-09-18
 
-## 已完成
+## 当前可用链路
 
-- 建立 StackBridge 本地 Git 仓库。
-- 将原始规格与交接材料保存在 `docs/design/`。
-- 增加项目首页、设计评估和诚实的状态矩阵。
-- 建立 `SoloEdge-ai/StackBridge` 私有远端并推送 `main` 分支。
-- 建立 pnpm workspace、React/Vite Web、独立 Node.js Core 和共享协议包。
-- Core 仅监听 `127.0.0.1`，校验 Host/Origin，以启动令牌换取 HttpOnly/SameSite 本地会话。
-- 使用 node-pty/ConPTY 持有真实 PowerShell，会话由 Core 管理，不随网页刷新销毁。
-- Web 使用 xterm.js，支持输入、resize、Ctrl+C、session ID 重连与最多 1 MiB 输出回放。
-- 同一终端采用单写者租约：首个页面可写，其余页面只读且可显式接管；写者断开后自动转交。
-- 浏览器认证会话、终端会话、Core WebSocket 待发送量和 Web 渲染队列均设有上限。
-- 增加协议、会话、HTTP/WS 和真实 Windows PTY 测试。
-- 建立 ConnectionProfile、ExecutionTarget、RuntimeBinding 与 ExecutionRequest 的版本化严格 schema。
-- 增加覆盖本地、SSH、Docker、argv 与 shell 的语言无关 JSON 契约 fixture，并记录目标身份 ADR 与威胁检查。
-- 增加 Linux Go runtime：JSON stdio 握手、主机 argv、Docker inspect/exec、输出上限及容器 binding 复核。
-- 增加 Core SSH runtime client：系统 OpenSSH、严格 host-key 校验、固定 runtime 路径、指纹捕获、结构化请求和响应上限。
-- 在 `friden-dev-cube` 的真实 Ubuntu 22.04 amd64 宿主与 Ubuntu 22.04 容器上完成 M0-B1 集成验证，包括容器重建后的旧 binding 拒绝。
-- 增加 M0-B2 runtime 自动同步：无需远端预装 runtime 即可完成 host-key pin、Linux/架构探测、SFTP 上传、SHA-256 校验、内容寻址安装、原子 `current/previous` 切换和失败回滚。
-- Go runtime 升级为协议 2，握手公开 runtime 版本和当前二进制摘要，并增加 `version`、`install`、`rollback` 固定模式。
-- 内置 linux/amd64 与 linux/arm64 静态 runtime；Core 启动时加载并校验本地产物，远端无需 Go、Node 或 Python。
-- Web 增加 SSH/Docker 工作区：绑定目标与提案的一次性部署确认、连接状态、核验身份、手动结构化 argv 输入、超时和 stdout/stderr 结果。
-- 通过真实浏览器、真实 `friden-dev-cube` 和已标签 Ubuntu 22.04 Docker fixture 验证 UI 连接和执行；再次连接会静默复用匹配 runtime。
+StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 
-## 当前边界
+- 本地 Windows 使用 PowerShell/ConPTY；SSH 和 Docker 标签使用真实交互 PTY。
+- 临时 PowerShell/Bash/Zsh 集成提供命令边界、cwd、退出状态和环境层级，不修改用户永久 Shell 配置。
+- 页面刷新重新附着 Core 中的 PTY 并回放有界输出；多页面使用单写者租约。
+- 关闭终端标签会显式终止 PTY，并释放关联的本地/远端会话容量；普通刷新不会触发关闭。
+- Codex App Server 使用独立 `CODEX_HOME` 与系统 keyring；一个连续对话对应一个 Codex thread。
+- 每次提问冻结终端、环境、binding、cwd、Shell、context/input 版本；跨环境历史写入同一对话时间线。
+- 默认上下文包含最近 20 条命令、最近 3 条输出或运行中快照，输出上限 64 KiB，并做控制字符清理和基础敏感信息遮蔽。
+- AI 只能返回回答与命令建议。Core 拥有不可变建议和持久化 operation；执行需要逐条确认、五分钟内有效、原目标未变、环境已核验、Shell 仍存活且空闲、输入为空，并且批准页面持有写入租约。
+- 经确认命令在原 Shell 执行，所以 `cd`、`export` 和虚拟环境状态继续有效；重复确认、刷新和重试不会二次提交。
+- SQLite 保存对话、冻结建议和命令元数据，终端输出分块保存；默认七天/1 GiB 清理。
 
-M0-A、M0-B0、M0-B1 和 M0-B2 最小垂直切片可用，但仍是开发原型。没有 Electron、持久化层、AI provider 或 Codex 集成；runtime 已自动部署/升级/回滚并校验 SHA-256，但正式发布签名尚未实现。已验证一套 Ubuntu 22.04 amd64 SSH/Docker fixture；Ubuntu 24.04 仅完成静态 runtime 容器兼容性冒烟，尚未验证完整 SSH 部署。物理 ARM64、跳板机、远端 PTY 和正式安装包仍未验证。
+## 实机状态
+
+- Windows 本地 PowerShell：真实输入、Unicode、emoji、resize、Ctrl+C、同 Shell 状态、刷新重附着已验证。
+- `friden@friden-dev-cube`：真实 Zsh PTY、cwd、中文输出和 Ctrl+C 已验证。
+- `stackbridge-m0b1-ubuntu22`：真实 Bash PTY、三层环境路径、环境变量/cwd 保留和刷新重附着已验证。
+- runtime `0.2.0-dev` 通过 `golang:1.24-bookworm` 构建和 Go 测试，amd64 产物已通过一次性确认升级到 `/home/friden/.sbridge`；arm64 产物已构建。
+- 当前 OpenAI OAuth 页面返回 `unsupported_country_region_territory`。登录入口、状态查询和取消已接通，但真实 ChatGPT 回合必须在受支持网络下最终验收。
 
 ## 启动与验证
 
@@ -37,7 +32,7 @@ pnpm install
 pnpm dev
 ```
 
-打开 `http://127.0.0.1:5173`，输入 Core 控制台打印的启动令牌。
+打开 `http://127.0.0.1:5173` 会自动建立本机浏览器会话并进入工作台，无需启动令牌。默认 AI 快捷键是 `Ctrl+Shift+Space`，`Esc` 返回终端焦点。
 
 ```powershell
 pnpm typecheck
@@ -45,30 +40,28 @@ pnpm test
 pnpm build
 ```
 
-已验证环境：Windows NT `10.0.26200.0`、Node.js `22.14.0`、pnpm `10.33.0`、node-pty `1.1.0`、PowerShell/ConPTY；远端 Ubuntu 22.04.5 LTS amd64、Docker Engine `29.4.0`、Ubuntu 22.04 容器、Go `1.24` 隔离构建容器。
+远端复测使用 UI“新建连接”，默认 fixture 为：
 
-## 已执行的验证
+```text
+SSH:    friden@friden-dev-cube:22
+Docker: context=default, container=stackbridge-m0b1-ubuntu22,
+        user=root, cwd=/workspace
+```
 
-- 共享协议 schema：合法输入/resize/写入租约/ready/output 与非法边界。
-- 目标协议 schema：ConnectionProfile、ExecutionTarget、RuntimeBinding 与 ExecutionRequest 的本地/SSH/Docker/argv/shell 变体，以及严格未知字段拒绝。
-- 跨语言 fixture：TypeScript 与 Go runtime 均解析同一份 `m0-b0-target-contract.json`。
-- 真实 SSH：严格 host-key、连接指纹、runtime/boot/principal 身份、固定路径启动、普通 argv 与复杂字符保持。
-- 真实 Docker：显式 context、daemon/full container ID/start time/UID/GID/cwd/shell/mount digest 绑定，同名文件防串线，重建同名容器后旧 binding 返回 `stale_binding`。
-- runtime 部署：缺失时先返回确认提案；批准后写入 `/home/friden/.sbridge`，摘要与握手匹配；第二次无批准连接复用相同版本。
-- 部署授权：一次性授权绑定 SSH/Docker 请求与完整提案；目标、主机指纹、版本或摘要改变后拒绝沿用旧授权。
-- 资源与路径边界：远端会话最多 16 个；runtime 安装拒绝 staging 或内容寻址目录的中间符号链接逃逸。
-- 真实远端 UI：在浏览器中完成 SSH 宿主与 Docker 容器连接，显示 runtime/架构/部署状态，并分别执行 `/usr/bin/uname -a` 返回目标内结果。
-- 会话生命周期：断开订阅后 PTY 保持、回放有界、UTF-8 边界安全、退出后拒绝写入、终端数量上限。
-- Core HTTP/WS：Origin、启动令牌、HttpOnly cookie、创建终端、输入/resize、单写者接管、刷新重连回放；错误 Origin 和缺失 cookie 的 WebSocket 升级会被拒绝。
-- 浏览器认证会话：8 小时服务端过期、最多 32 个会话并淘汰最早记录。
-- 真实 Windows PTY：同一 Shell 环境变量保持、UTF-8 中文与 emoji、真实 resize、Ctrl+C 中断长任务。
-- 真实浏览器：认证、创建终端、刷新前后保持同一 session ID；Core 重启后的旧 session 会转为可恢复状态并可一键新建终端；浏览器控制台无错误。
+## 明确剩余边界
 
-尚未验证中文输入法组合态、vim/top 等全屏 TUI、持续高吞吐压力和打包后的干净 Windows 环境；这些不属于当前“verified”声明。
-当前 Web 生产包约 650 kB，Vite 仍提示单 chunk 超过 500 kB；在 Electron/生产交付前需要做代码分块与体积预算。
+- Go runtime 仍是协议 2 的安装、身份和结构化执行通道。当前远端 PTY由 Core 的 OpenSSH 进程持有；协议 3 supervisor、PTY 分帧和 SSH 短断线/Core 重启重附着未实现。
+- 手输普通 `ssh`/`docker exec -it` 能原生使用并产生未核验环境事件；完整自动执行能力只对“新建连接”创建的受管标签开放。
+- Shell 随机标记不是针对同 UID 恶意进程的强认证通道；受限命名管道/Unix socket 仍待后续安全加固，runtime binding 不依赖该标记授权。
+- 没有完成密码/MFA askpass、tmux/screen、提权 Shell、全屏 TUI、中文输入法组合输入和长时间高吞吐矩阵。
+- Codex 动态客户端工具与统一 `/v1/events` 流尚未实现；当前由 Core 预组装上下文、HTTP 返回 AI 回合并轮询 operation。
+- 没有 Electron、生产同源服务、安装包、文件自动修改、外部插件、子代理或无人值守循环。
 
-## 下一个最小任务
+## 建议下一步
 
-进入 M0-C：先用 FakeProvider 建立冻结 Agent Session、Tool Gateway、提案/审批/执行状态机和绑定 action hash 的一次性能力票据，再接真实 API provider。必须复用 M0-B 的 RuntimeBinding 复核，不允许模型直接选择 target、binding 或填写 `approved: true`。
+1. 在受支持网络完成真实 ChatGPT 登录、真实回答、建议卡、确认执行和后续解释的最终验收。
+2. 将远端 PTY 下沉到 runtime 协议 3 supervisor，补齐短断线与 Core 重启恢复。
+3. 扩展 Playwright 到真实 ChatGPT 回合，并补中文输入法/全屏 TUI/吞吐矩阵。
+4. 之后再进入生产同源服务和 Electron 安装包，不扩大本次终端助手的工具权限。
 
-开始前应再次检查工作区与 Git 状态，不覆盖用户变更。
+完整证据见 [AI 终端验证记录](AI-TERMINAL-VERIFICATION.md)。

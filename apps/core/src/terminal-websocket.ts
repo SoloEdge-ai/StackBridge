@@ -15,17 +15,19 @@ interface SessionConnections {
 
 export class TerminalWebSocketHub {
   private readonly sessions = new Map<string, SessionConnections>();
+  private readonly owners = new WeakMap<WebSocket, string>();
 
   constructor(
     private readonly maximumBufferedBytes = defaultMaximumBufferedBytes,
   ) {}
 
-  attach(webSocket: WebSocket, terminalSession: TerminalSession): void {
+  attach(webSocket: WebSocket, terminalSession: TerminalSession, owner: string): void {
     const connections = this.sessions.get(terminalSession.id) ?? {
       sockets: [],
       writer: undefined,
     };
     this.sessions.set(terminalSession.id, connections);
+    this.owners.set(webSocket, owner);
 
     connections.sockets.push(webSocket);
     connections.writer ??= webSocket;
@@ -137,6 +139,22 @@ export class TerminalWebSocketHub {
     };
     webSocket.once("close", detach);
     webSocket.once("error", detach);
+  }
+
+  hasWriteLease(terminalSessionId: string, owner: string): boolean {
+    const writer = this.sessions.get(terminalSessionId)?.writer;
+    return writer !== undefined && this.owners.get(writer) === owner;
+  }
+
+  closeSession(terminalSessionId: string): void {
+    const connections = this.sessions.get(terminalSessionId);
+    if (connections === undefined) return;
+    this.sessions.delete(terminalSessionId);
+    for (const socket of [...connections.sockets]) {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.close(1000, "Terminal session closed");
+      } else socket.terminate();
+    }
   }
 
   private sendError(webSocket: WebSocket, code: string, message: string): void {

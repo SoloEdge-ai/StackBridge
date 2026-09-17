@@ -8,6 +8,9 @@ build/
 out/
 release/
 coverage/
+artifacts/playwright/
+test-results/
+playwright-report/
 
 # Runtime and local state
 .stackbridge/

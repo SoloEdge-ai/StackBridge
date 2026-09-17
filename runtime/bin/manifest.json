@@ -1,19 +1,9 @@
 {
   "schemaVersion": 1,
-  "runtimeVersion": "0.1.0-dev",
+  "runtimeVersion": "0.2.0-dev",
   "protocolVersion": 2,
   "artifacts": [
-    {
-      "platform": "linux",
-      "arch": "amd64",
-      "file": "linux-amd64/stackbridge-runtime",
-      "sha256": "sha256:b0752a0e9d1f8ad731afd5c48dde5cfae4f824ff8ed8d74a145927dba5564d9f"
-    },
-    {
-      "platform": "linux",
-      "arch": "arm64",
-      "file": "linux-arm64/stackbridge-runtime",
-      "sha256": "sha256:0647bdc699223137f3d8b03fe7e1a315c25cc956b11d9529f23a08c2ee84b6c1"
-    }
+    { "platform": "linux", "arch": "amd64", "file": "linux-amd64/stackbridge-runtime", "sha256": "sha256:045ad2f64ca6ef47073210be34520ee3d57a4548bebd7dbf50a8c86108549490" },
+    { "platform": "linux", "arch": "arm64", "file": "linux-arm64/stackbridge-runtime", "sha256": "sha256:42db9c319398f6f72168a5a6d5e9136488b2aff324ee6c28782690d60a360fa9" }
   ]
 }
