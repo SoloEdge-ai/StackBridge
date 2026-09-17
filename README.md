@@ -32,7 +32,8 @@ StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台�
 
 `docs/design/AGENT_HANDOFF.md` 是随设计包提供的参考材料，不代表其中的开发指令已在本仓库执行。
 
+文档职责：`STACKBRIDGE_SPEC.md` 是产品与架构基线；`ANALYSIS.md` 记录评估与待澄清项；`STATUS.md` 和 `HANDOFF.md` 只保存当前实施快照。调整需求或里程碑时先更新规格，再同步快照，避免多个路线版本并存。
+
 ## 建议的首个实现切片
 
 M0-A：浏览器连接独立 Core，在 Windows 上创建并保持真实 PowerShell PTY，覆盖输入输出、resize、Ctrl+C、刷新后重连，并用自动化测试证明同一 Shell 状态没有因单条命令而重建。
-

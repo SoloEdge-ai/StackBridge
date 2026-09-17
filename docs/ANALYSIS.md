@@ -41,6 +41,13 @@
 
 规格列出了大量验收用例，但缺少可量化的体验与可靠性目标，例如终端输入延迟、持续高频输出的内存上限、断线恢复时间、日志保留预算和安装包体积。M0 测试时应记录基线，M1 前再确定目标值。
 
+### 7. 两组领域名称需要在实现前统一
+
+- `AgentSession.engineProfileId` 没有对应的 `engine_profiles` 持久化实体，当前实体清单只有 `provider_profiles`；但规格又明确区分 `AgentEngine` 与 `ModelProvider`。需要决定引擎档案和供应商档案是一对一、组合关系还是同一实体，并统一字段与表名。
+- 概念章节使用 `ExecutionTarget`，核心类型示例使用 `TargetSpec`，原始交接材料又要求创建 `ExecutionTarget` schema。需要明确前者是否为持久化实体、后者是否仅为创建参数；否则跨 Core、Gateway 与 runtime 的命名会漂移。
+
+原始设计文件作为输入证据保持不变；以上问题应通过后续 ADR 或规格修订解决，而不是在实现中自行猜测。
+
 ## 推荐执行顺序
 
 1. **M0-A：Windows Web 终端。** 只做独立 Core、单 PowerShell PTY、单 Web 页面和刷新重连；先验证 node-pty/ConPTY 与生命周期。
@@ -61,4 +68,3 @@
 - Docker CLI：未安装或不在 PATH
 
 当前环境足以建立仓库和启动 Web/Core 基础工程，但尚不能在本机验证 Go runtime 或 Docker 切片。真实 SSH Linux、ARM64、模型凭证与 Codex 兼容性也尚未验证。
-
