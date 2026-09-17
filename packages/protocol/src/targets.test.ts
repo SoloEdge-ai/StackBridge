@@ -1,13 +1,26 @@
 import { readFileSync } from "node:fs";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import {
   connectionProfileSchema,
   executionRequestSchema,
   executionTargetSchema,
   runtimeBindingSchema,
+  type ConnectionProfile,
+  type ExecutionRequest,
+  type ExecutionTarget,
+  type RuntimeBinding,
 } from "./index.js";
+
+const executionRequestEnvelope = {
+  schemaVersion: 1,
+  agentSessionId: "agent-session.dev-main",
+  expectedBindingId: "binding.dev-main.1",
+  cwd: "/workspace/stackbridge",
+  environmentProfileId: "environment.dev-main.base",
+  timeoutMs: 120_000,
+};
 
 describe("target protocol", () => {
   it("accepts an SSH connection profile that references credentials instead of containing secrets", () => {
@@ -89,24 +102,39 @@ describe("target protocol", () => {
       dockerDaemonId: "daemon.dev-main.rootless",
       containerId: "8f3a1b2c4d5e6f708f3a1b2c4d5e6f708f3a1b2c4d5e6f708f3a1b2c4d5e6f70",
       containerStartedAt: "2026-09-17T09:55:00.000Z",
+      containerState: "running",
       principal: { uid: 1000, gid: 1000, name: "developer" },
       platform: "linux",
       arch: "x86_64",
+      defaultCwd: "/workspace/stackbridge",
+      shell: "/bin/sh",
       workspaceRoots: ["/workspace/stackbridge"],
       mountsDigest: `sha256:${"a".repeat(64)}`,
       capabilities: ["process.argv", "fs.read", "fs.write", "terminal.pty"],
     };
     const { containerStartedAt: _removed, ...incompleteBinding } = binding;
+    const contradictoryNoShellBinding = {
+      ...binding,
+      shell: null,
+    };
+    const argvOnlyNoShellBinding = {
+      ...binding,
+      shell: null,
+      capabilities: ["process.argv", "fs.read"],
+    };
 
     expect(runtimeBindingSchema.parse(binding)).toEqual(binding);
     expect(runtimeBindingSchema.safeParse(incompleteBinding).success).toBe(false);
+    expect(runtimeBindingSchema.safeParse(contradictoryNoShellBinding).success).toBe(
+      false,
+    );
+    expect(runtimeBindingSchema.safeParse(argvOnlyNoShellBinding).success).toBe(true);
   });
 
   it("distinguishes local and SSH runtime bindings", () => {
     const common = {
       schemaVersion: 1,
       generation: "1",
-      principal: { name: "developer" },
       arch: "x86_64",
       capabilities: ["process.argv", "fs.read"],
     };
@@ -117,6 +145,7 @@ describe("target protocol", () => {
         targetId: "target.local-windows",
         targetKind: "local",
         runtimeInstanceId: "runtime.local.1",
+        principal: { name: "developer" },
         platform: "windows",
         workspaceRoots: ["C:\\workspace\\stackbridge"],
       },
@@ -128,31 +157,34 @@ describe("target protocol", () => {
         runtimeInstanceId: "runtime.dev-main.1",
         verifiedHostKey: "SHA256:AbCdEf0123456789+/hostFingerprint",
         hostBootId: "aa4bf2ca-5bc6-424f-98f9-22a671d323ce",
+        principal: { uid: 1000, gid: 1000, name: "developer" },
         platform: "linux",
+        defaultCwd: "/workspace/stackbridge",
+        shell: "/bin/sh",
         workspaceRoots: ["/workspace/stackbridge"],
       },
     ];
+    const nameOnlySshBinding = {
+      ...bindings[1],
+      principal: { name: "developer" },
+    };
 
     expect(bindings.map((binding) => runtimeBindingSchema.parse(binding))).toEqual(
       bindings,
     );
+    expect(runtimeBindingSchema.safeParse(nameOnlySshBinding).success).toBe(false);
   });
 
   it("accepts a binding-pinned argv request and rejects a caller-supplied target override", () => {
     const request = {
-      schemaVersion: 1,
+      ...executionRequestEnvelope,
       requestId: "request.inspect-worktree",
       operationId: "operation.inspect-worktree",
-      agentSessionId: "agent-session.dev-main",
-      expectedBindingId: "binding.dev-main.1",
-      cwd: "/workspace/stackbridge",
       command: {
         kind: "argv",
         program: "git",
         args: ["status", "--short"],
       },
-      environmentProfileId: "environment.dev-main.base",
-      timeoutMs: 120_000,
       approvalId: "approval.inspect-worktree",
     };
 
@@ -167,23 +199,30 @@ describe("target protocol", () => {
 
   it("keeps explicit shell execution distinct from argv execution", () => {
     const request = {
-      schemaVersion: 1,
+      ...executionRequestEnvelope,
       requestId: "request.configure-environment",
       operationId: "operation.configure-environment",
-      agentSessionId: "agent-session.dev-main",
-      expectedBindingId: "binding.dev-main.1",
-      cwd: "/workspace/stackbridge",
       command: {
         kind: "shell",
         shell: "/bin/sh",
         script: "set -eu\nprintf '%s\\n' ready",
       },
-      environmentProfileId: "environment.dev-main.base",
-      timeoutMs: 120_000,
       approvalId: "approval.configure-environment",
     };
 
     expect(executionRequestSchema.parse(request)).toEqual(request);
+  });
+
+  it("keeps domain identifiers distinct at compile time", () => {
+    expectTypeOf<ConnectionProfile["id"]>().not.toEqualTypeOf<
+      ExecutionTarget["id"]
+    >();
+    expectTypeOf<RuntimeBinding["targetId"]>().toEqualTypeOf<
+      ExecutionTarget["id"]
+    >();
+    expectTypeOf<RuntimeBinding["bindingId"]>().toEqualTypeOf<
+      ExecutionRequest["expectedBindingId"]
+    >();
   });
 
   it("parses the language-neutral M0-B0 contract fixture", () => {
@@ -213,5 +252,29 @@ describe("target protocol", () => {
         executionRequestSchema.parse(value),
       ),
     }).toEqual(fixture);
+  });
+
+  it("preserves spaces, quotes, newlines, and Chinese in the shared argv fixture", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL("../fixtures/m0-b0-target-contract.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { executionRequests: unknown[] };
+    const requests = fixture.executionRequests.map((value) =>
+      executionRequestSchema.parse(value),
+    );
+    const edgeRequest = requests.find(
+      (request) => request.requestId === "request.edge-characters",
+    );
+
+    expect(edgeRequest).toMatchObject({
+      cwd: "/workspace/含 空格",
+      command: {
+        kind: "argv",
+        program: "/usr/bin/printf",
+        args: ["%s\\n", "空 格", "quote\"and'apostrophe", "line1\nline2"],
+      },
+    });
   });
 });

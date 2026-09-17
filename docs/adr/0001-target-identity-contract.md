@@ -11,7 +11,7 @@ The product specification uses `ExecutionTarget` for the saved user concept and 
 
 - `ConnectionProfile` is the saved connection method. Secrets are represented only by `credentialRef`.
 - `ExecutionTarget` is the only name for the persisted logical target. The former `TargetSpec` example is treated as the serialized shape of `ExecutionTarget`, not as a second domain type.
-- `RuntimeBinding` is a versioned, target-kind-specific record of a verified instance. Docker bindings require the verified SSH host key, host boot ID, Docker daemon ID, full container ID, container start time, mounts digest, principal, workspace roots, and capabilities.
+- `RuntimeBinding` is a versioned, target-kind-specific record of a verified instance. SSH and Docker bindings require a numeric execution UID plus the resolved shell and default cwd. Docker bindings additionally require the verified SSH host key, host boot ID, Docker daemon ID, full container ID, container start time and running state, mounts digest, workspace roots, and capabilities. A missing container shell is recorded explicitly as `null` and limits advertised capabilities.
 - `ExecutionRequest` is a strict internal gateway contract. It contains an `expectedBindingId` and rejects extra caller-supplied fields such as `targetId`.
 - Every contract object carries `schemaVersion: 1`. Breaking changes require a new version or explicit compatibility handling.
 - The TypeScript Zod schemas in `@stackbridge/protocol` are authoritative for M0-B0. The shared JSON fixture is the input for the future Go compatibility test.

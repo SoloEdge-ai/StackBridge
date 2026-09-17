@@ -28,8 +28,8 @@ The fixture at `packages/protocol/fixtures/m0-b0-target-contract.json` contains 
 ### RuntimeBinding
 
 - `local`: local runtime instance, generation, principal, platform, roots, and capabilities.
-- `ssh`: additionally requires the verified host key and host boot ID.
-- `docker`: additionally requires the SSH host identity, daemon identity, full 64-character container ID, start timestamp, and mounts digest.
+- `ssh`: additionally requires the verified host key, host boot ID, numeric execution UID, resolved shell, and default cwd.
+- `docker`: additionally requires the SSH host identity, daemon identity, full 64-character container ID, start timestamp, running state, numeric execution UID, default cwd, explicit shell-or-no-shell value, and mounts digest.
 
 Changing any instance identity evidence requires a new `bindingId` or generation. Consumers must compare the current binding rather than trusting a previously parsed object.
 
