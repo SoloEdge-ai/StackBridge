@@ -1,5 +1,13 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
+import {
+  RemoteRuntimeManager,
+  runtimeArtifactManifestSchema,
+  type RuntimeArtifact,
+} from "./remote-runtime-manager.js";
+import { RemoteSessionManager } from "./remote-session-manager.js";
 import { createCoreServer } from "./server.js";
 import { TerminalSessionManager } from "./terminal-session.js";
 import { createWindowsPtyFactory } from "./windows-pty.js";
@@ -27,16 +35,39 @@ const allowedOrigins = (
 const terminalSessions = new TerminalSessionManager(
   createWindowsPtyFactory({ cwd: terminalCwd }),
 );
+const repositoryRoot = process.env.INIT_CWD ?? process.cwd();
+const runtimeManifestPath = resolve(
+  process.env.STACKBRIDGE_RUNTIME_MANIFEST ?? resolve(repositoryRoot, "runtime", "bin", "manifest.json"),
+);
+const runtimeManifest = runtimeArtifactManifestSchema.parse(
+  JSON.parse(readFileSync(runtimeManifestPath, "utf8")),
+);
+const runtimeArtifacts = runtimeManifest.artifacts.map((artifact) => ({
+  path: resolve(
+    process.env[`STACKBRIDGE_RUNTIME_ARTIFACT_${artifact.arch.toUpperCase()}`] ??
+      resolve(runtimeManifestPath, "..", artifact.file),
+  ),
+  runtimeVersion: runtimeManifest.runtimeVersion,
+  protocolVersion: runtimeManifest.protocolVersion,
+  platform: artifact.platform,
+  arch: artifact.arch,
+  sha256: artifact.sha256,
+} satisfies RuntimeArtifact));
+const remoteSessions = new RemoteSessionManager(
+  new RemoteRuntimeManager({ artifacts: runtimeArtifacts }),
+);
 const core = createCoreServer({
   launchToken,
   allowedOrigins,
   terminalSessions,
+  remoteSessions,
 });
 
 await core.listen({ host, port });
 
 console.log(`StackBridge Core listening on http://${host}:${port}`);
 console.log(`Terminal working directory: ${terminalCwd}`);
+console.log(`Bundled remote runtimes: ${runtimeArtifacts.map((item) => item.arch).join(", ") || "none"}`);
 console.log(`Launch token: ${launchToken}`);
 
 let closing = false;

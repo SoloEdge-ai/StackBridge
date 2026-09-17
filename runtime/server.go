@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	ProtocolVersion    = 1
+	ProtocolVersion    = 2
 	maximumMessageSize = 1_048_576
 )
 
@@ -27,6 +27,8 @@ type Principal struct {
 
 type RuntimeIdentity struct {
 	ProtocolVersion   int       `json:"protocolVersion"`
+	RuntimeVersion    string    `json:"runtimeVersion"`
+	RuntimeDigest     string    `json:"runtimeDigest"`
 	RuntimeInstanceID string    `json:"runtimeInstanceId"`
 	HostBootID        string    `json:"hostBootId"`
 	Principal         Principal `json:"principal"`
@@ -172,7 +174,7 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 
 func (server *Server) handle(ctx context.Context, request Request) Response {
 	if request.Version != ProtocolVersion {
-		return errorResponse(request.ID, "unsupported_version", "protocol version must be 1")
+		return errorResponse(request.ID, "unsupported_version", fmt.Sprintf("protocol version must be %d", ProtocolVersion))
 	}
 	if request.ID == "" {
 		return errorResponse("", "invalid_request", "request id is required")

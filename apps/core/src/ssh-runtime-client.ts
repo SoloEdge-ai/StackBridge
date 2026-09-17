@@ -11,8 +11,8 @@ import {
 } from "@stackbridge/protocol";
 import { z } from "zod";
 
-export const m0B1RemoteRuntimePath =
-  ".local/lib/stackbridge/runtime/m0-b1/stackbridge-runtime";
+export const managedRemoteRuntimePath =
+  ".sbridge/current/stackbridge-runtime";
 
 // The runtime caps stdout and stderr at 1 MiB each. JSON may encode every byte
 // as a six-byte escape, so the transport limit must cover that worst case.
@@ -24,7 +24,9 @@ const dockerPreflightBudgetMs = 75_000;
 
 const runtimeIdentitySchema = z
   .object({
-    protocolVersion: z.literal(1),
+    protocolVersion: z.literal(2),
+    runtimeVersion: z.string().min(1),
+    runtimeDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
     runtimeInstanceId: z.string().min(1),
     hostBootId: z.string().min(1),
     principal: z
@@ -77,7 +79,7 @@ const dockerBindingEvidenceSchema = z
 const runtimeResponseSchema = z.discriminatedUnion("ok", [
   z
     .object({
-      version: z.literal(1),
+      version: z.literal(2),
       id: z.string(),
       ok: z.literal(true),
       result: z.unknown(),
@@ -85,7 +87,7 @@ const runtimeResponseSchema = z.discriminatedUnion("ok", [
     .strict(),
   z
     .object({
-      version: z.literal(1),
+      version: z.literal(2),
       id: z.string(),
       ok: z.literal(false),
       error: z
@@ -128,10 +130,11 @@ interface ClientOptions {
   spawn?: SpawnRuntimeProcess;
   requestTimeoutMs?: number;
   resolveKnownHost?: ResolveKnownHost;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
+  runtimePath?: string;
 }
 
-interface PinnedKnownHost {
+export interface PinnedKnownHost {
   lookupName: string;
   knownHostsLine: string;
   fingerprint: string;
@@ -194,7 +197,7 @@ interface HostKeyWaiter {
   timeout: NodeJS.Timeout;
 }
 
-interface PinnedHostFile {
+export interface PinnedHostFile {
   path: string;
   cleanup: () => void;
 }
@@ -330,7 +333,7 @@ export class SshRuntimeClient {
     if (this.closed) return Promise.reject(new Error("SSH runtime client is closed"));
 
     const id = randomUUID();
-    const payload = `${JSON.stringify({ version: 1, id, method, params })}\n`;
+    const payload = `${JSON.stringify({ version: 2, id, method, params })}\n`;
     if (Buffer.byteLength(payload, "utf8") > maximumRequestLineBytes) {
       return Promise.reject(
         new RuntimeProtocolError(
@@ -489,7 +492,7 @@ export async function createSshRuntimeClient(
     "-l",
     profile.user,
     profile.host,
-    m0B1RemoteRuntimePath,
+    options.runtimePath ?? managedRemoteRuntimePath,
     "stdio",
   ];
   let child: RuntimeProcess;
@@ -510,7 +513,7 @@ export async function createSshRuntimeClient(
   );
 }
 
-function createPinnedHostFile(knownHostsLine: string): PinnedHostFile {
+export function createPinnedHostFile(knownHostsLine: string): PinnedHostFile {
   const directory = mkdtempSync(join(tmpdir(), "stackbridge-ssh-"));
   const path = join(directory, "known_hosts");
   writeFileSync(path, `${knownHostsLine}\n`, { encoding: "utf8", mode: 0o600 });
@@ -575,8 +578,8 @@ export async function resolveKnownHost(
         "-l",
         user,
         host,
-        m0B1RemoteRuntimePath,
-        "stdio",
+        "/usr/bin/uname",
+        "-sm",
       ],
       defaultRequestTimeoutMs,
       signal,
@@ -613,7 +616,7 @@ export async function resolveKnownHost(
   };
 }
 
-function runtimeSshSecurityArguments(): string[] {
+export function runtimeSshSecurityArguments(): string[] {
   return [
     "-T",
     "-o",

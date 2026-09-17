@@ -28,7 +28,7 @@ liveDescribe("SSH runtime client integration", () => {
     const identity = await client.handshake();
     const verifiedHostKey = await client.verifiedHostKey();
     expect(identity).toMatchObject({
-      protocolVersion: 1,
+      protocolVersion: 2,
       platform: "linux",
       principal: { uid: 1000, gid: 1000 },
     });

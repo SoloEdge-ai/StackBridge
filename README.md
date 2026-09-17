@@ -2,9 +2,9 @@
 
 StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
 
-> 当前状态：**M0-A Windows Web 终端、M0-B0 目标协议和 M0-B1 SSH/Docker 执行切片已实现并验证**。现有代码可以从浏览器连接独立 Core，使用真实 PowerShell/ConPTY；也可由 Core 经严格 OpenSSH 连接 Linux Go runtime，并在执行前核验 Docker 实例身份。AI、Electron 和完整产品化能力尚未实现。
+> 当前状态：**M0-A Windows Web 终端、M0-B0 目标协议、M0-B1 SSH/Docker 执行和 M0-B2 runtime 自动同步/UI 已实现并验证**。浏览器可连接本地 PowerShell，也可连接 SSH Linux 或其 Docker 容器；Core 会在用户确认后把匹配架构的静态 runtime 安装到登录用户的 `~/.sbridge`。AI、Electron 和完整产品化能力尚未实现。
 
-## 运行 M0-A
+## 运行当前原型
 
 要求 Windows、Node.js 22.14+ 和 pnpm 10.33+。
 
@@ -13,7 +13,7 @@ pnpm install
 pnpm dev
 ```
 
-打开 `http://127.0.0.1:5173`，把 Core 输出的启动令牌粘贴到登录页。认证后浏览器获得 HttpOnly 本地会话 cookie；启动令牌不会保存到 Web Storage。
+打开 `http://127.0.0.1:5173`，把 Core 输出的启动令牌粘贴到登录页。认证后可在顶部切换“本地终端”和“SSH / Docker”。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入 `~/.sbridge`。
 
 常用验证命令：
 
@@ -25,10 +25,10 @@ pnpm build
 
 当前工作区：
 
-- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell PTY、有界重连缓冲与单写者租约。
-- `apps/web`：React/Vite 单终端页面与 xterm.js。
+- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell PTY、SSH runtime 自动同步与远端会话。
+- `apps/web`：React/Vite 工作台、xterm.js 本地终端、SSH/Docker 连接与结构化 argv 执行界面。
 - `packages/protocol`：Web/Core 共用的运行时消息 schema。
-- `runtime`：Linux Go runtime，提供身份握手、结构化 argv 与经宿主核验的 Docker 执行。
+- `runtime`：Linux Go runtime，提供自安装/回滚、身份握手、结构化 argv 与经宿主核验的 Docker 执行；仓库内置 amd64/arm64 静态产物。
 
 ## 核心方向
 
@@ -56,6 +56,7 @@ pnpm build
 - [M0-A 协议](docs/PROTOCOL.md)
 - [M0-B0 目标身份协议](docs/TARGET_PROTOCOL.md)
 - [M0-B1 SSH/Docker 验证记录](docs/M0-B1-VERIFICATION.md)
+- [M0-B2 runtime 自动同步与 UI 验证记录](docs/M0-B2-VERIFICATION.md)
 - [领域词汇](CONTEXT.md)
 - [项目状态](docs/STATUS.md)
 - [后续交接](docs/HANDOFF.md)
@@ -70,4 +71,5 @@ pnpm build
 - 多页面可同时查看同一终端，但只有一个页面持有写入租约；后打开的页面默认只读，可显式接管输入。
 - 尚未验证中文输入法、全屏 TUI、长时间高吞吐或打包后的干净 Windows 安装环境。
 - 当前 UI 通过 Vite 开发代理访问 Core；生产同源静态文件服务和 Electron 外壳尚未实现。
-- 远端 runtime 目前仍需手工构建和部署；尚无签名分发、自动升级或回滚。
+- M0-B2 产物由源码构建并以 SHA-256 校验，尚未接入正式桌面安装包签名和独立发布签名。
+- 远端 UI 当前提供结构化 argv 基础执行；远端交互 PTY、文件浏览/编辑、持久化连接档案和密码/MFA askpass 仍未实现。

@@ -30,7 +30,7 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Go build artifacts
-runtime/bin/
+# Go build artifacts. The two static remote runtime payloads are intentionally
+# versioned for the M0 automatic-deployment slice; other Go test binaries stay ignored.
 *.test
-
+/runtime/bin/stackbridge-runtime

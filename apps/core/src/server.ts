@@ -7,8 +7,16 @@ import {
   type TerminalSessionSnapshot,
 } from "@stackbridge/protocol";
 import { WebSocketServer } from "ws";
+import { ZodError } from "zod";
 
 import { BrowserSessionStore } from "./browser-session-store.js";
+import {
+  InvalidDeploymentApprovalError,
+  RemoteDeploymentApprovalRequiredError,
+  RemoteSessionLimitError,
+  RemoteSessionNotFoundError,
+  type RemoteSessionService,
+} from "./remote-session-manager.js";
 import {
   TerminalSessionLimitError,
   type TerminalSessionManager,
@@ -23,6 +31,7 @@ export interface CoreServerOptions {
   allowedOrigins: string[];
   terminalSessions: TerminalSessionManager;
   browserSessions?: BrowserSessionStore;
+  remoteSessions?: RemoteSessionService;
 }
 
 export interface ListenOptions {
@@ -140,6 +149,73 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/v1/remote-sessions") {
+      if (options.remoteSessions === undefined) {
+        writeJson(response, 503, { error: "remote_sessions_unavailable" });
+        return;
+      }
+      try {
+        const snapshot = await options.remoteSessions.connect(await readJsonBody(request));
+        writeJson(response, 201, snapshot);
+      } catch (error) {
+        if (error instanceof RemoteDeploymentApprovalRequiredError) {
+          writeJson(response, 409, {
+            error: "deployment_approval_required",
+            approvalId: error.approvalId,
+            proposal: error.proposal,
+          });
+        } else if (error instanceof InvalidDeploymentApprovalError) {
+          writeJson(response, 409, { error: "deployment_approval_invalid" });
+        } else if (error instanceof RemoteSessionLimitError) {
+          writeJson(response, 503, { error: "remote_session_limit_reached" });
+        } else if (error instanceof ZodError) {
+          writeJson(response, 400, { error: "invalid_request" });
+        } else {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    const remoteSessionMatch = /^\/v1\/remote-sessions\/([0-9a-f-]{36})$/.exec(
+      url.pathname,
+    );
+    if (request.method === "DELETE" && remoteSessionMatch?.[1]) {
+      if (options.remoteSessions === undefined) {
+        writeJson(response, 503, { error: "remote_sessions_unavailable" });
+        return;
+      }
+      const closed = options.remoteSessions.close(remoteSessionMatch[1]);
+      writeJson(response, closed ? 200 : 404, { closed });
+      return;
+    }
+
+    const remoteExecuteMatch = /^\/v1\/remote-sessions\/([0-9a-f-]{36})\/manual-execute$/.exec(
+      url.pathname,
+    );
+    if (request.method === "POST" && remoteExecuteMatch?.[1]) {
+      if (options.remoteSessions === undefined) {
+        writeJson(response, 503, { error: "remote_sessions_unavailable" });
+        return;
+      }
+      try {
+        const result = await options.remoteSessions.execute(
+          remoteExecuteMatch[1],
+          await readJsonBody(request),
+        );
+        writeJson(response, 200, result);
+      } catch (error) {
+        if (error instanceof RemoteSessionNotFoundError) {
+          writeJson(response, 404, { error: "remote_session_not_found" });
+        } else if (error instanceof ZodError) {
+          writeJson(response, 400, { error: "invalid_request" });
+        } else {
+          throw error;
+        }
+      }
+      return;
+    }
+
     writeJson(response, 404, { error: "not_found" });
   }
 
@@ -159,6 +235,7 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
       for (const webSocket of webSockets.clients) webSocket.terminate();
       webSockets.close();
       options.terminalSessions.disposeAll();
+      options.remoteSessions?.disposeAll();
       if (!server.listening) return;
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error === undefined ? resolve() : reject(error)));

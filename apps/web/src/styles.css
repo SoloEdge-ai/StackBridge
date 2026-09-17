@@ -19,7 +19,8 @@ body,
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -110,6 +111,23 @@ input {
   outline: none;
 }
 
+textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid #34423e;
+  border-radius: 9px;
+  padding: 12px 14px;
+  color: #f3f7f5;
+  background: #0b0f0f;
+  outline: none;
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+textarea:focus {
+  border-color: #61e8b0;
+  box-shadow: 0 0 0 3px #61e8b01a;
+}
+
 input:focus {
   border-color: #61e8b0;
   box-shadow: 0 0 0 3px #61e8b01a;
@@ -123,6 +141,36 @@ form button,
   color: #07100d;
   background: #61e8b0;
   font-weight: 700;
+}
+
+.topbar-actions,
+.button-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-button,
+.ghost-button {
+  border: 1px solid #34403d;
+  border-radius: 8px;
+  padding: 7px 11px;
+  color: #8f9d97;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nav-button.active {
+  border-color: #315f50;
+  color: #8cf7c9;
+  background: #19352d66;
+}
+
+.ghost-button:hover,
+.nav-button:hover {
+  border-color: #61e8b088;
+  color: #dce8e3;
 }
 
 form button {
@@ -312,6 +360,242 @@ button:disabled {
   height: 100%;
 }
 
+.remote-shell {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: 58px minmax(0, 1fr);
+  background:
+    radial-gradient(circle at 8% 15%, #15332977 0, transparent 30%),
+    radial-gradient(circle at 92% 88%, #102b3277 0, transparent 32%),
+    #0b0e0f;
+}
+
+.remote-content {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(340px, 0.85fr) minmax(480px, 1.4fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+.remote-card {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid #2b3432;
+  border-radius: 14px;
+  background: #111616ee;
+  box-shadow: 0 18px 54px #0005;
+}
+
+.connection-card {
+  padding: 24px;
+}
+
+.runtime-card {
+  padding: 20px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.section-heading .eyebrow,
+.approval-card .eyebrow {
+  margin: 0 0 7px;
+}
+
+.section-heading h1,
+.section-heading h2,
+.approval-card h2,
+.empty-runtime h2 {
+  margin: 0;
+  letter-spacing: -0.035em;
+}
+
+.muted.compact {
+  margin: 12px 0 22px;
+  font-size: 13px;
+}
+
+.remote-form,
+.command-form {
+  gap: 16px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.form-grid.three {
+  grid-template-columns: minmax(0, 1.5fr) minmax(80px, 0.55fr) minmax(0, 1fr);
+}
+
+.form-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field > span {
+  color: #82918b;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #a9b7b1;
+  font-size: 13px;
+}
+
+.checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: #61e8b0;
+}
+
+.approval-card {
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid #8c673d;
+  border-radius: 12px;
+  background: #2c2115aa;
+}
+
+.approval-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.approval-card dl > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.approval-card dt {
+  color: #a7927d;
+  font-size: 12px;
+}
+
+.approval-card dd {
+  margin: 0;
+  color: #e8ded2;
+  font-size: 12px;
+}
+
+.approval-note {
+  color: #c0aa92;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.button-row {
+  justify-content: flex-end;
+}
+
+.button-row button:not(.ghost-button),
+.command-heading button {
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 14px;
+  color: #07100d;
+  background: #61e8b0;
+  font-weight: 700;
+}
+
+.error-panel {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #633b3b;
+  border-radius: 9px;
+  background: #2b1515;
+}
+
+.runtime-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #29312f;
+}
+
+.command-form {
+  margin-top: 20px;
+}
+
+.command-heading {
+  align-items: center;
+}
+
+.output-panel {
+  min-height: 230px;
+  margin-top: 20px;
+  overflow: hidden;
+  border: 1px solid #29312f;
+  border-radius: 10px;
+  background: #0c1011;
+}
+
+.output-toolbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 13px;
+  border-bottom: 1px solid #29312f;
+  color: #7d8c86;
+  background: #151a1b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.output-panel pre {
+  min-height: 180px;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  color: #c9d6d0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.empty-runtime {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 50px;
+  color: #798880;
+  text-align: center;
+}
+
+.empty-runtime p {
+  max-width: 430px;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.mono {
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
+
+.breakable {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 760px) {
   .target-strip {
     align-items: flex-start;
@@ -326,5 +610,28 @@ button:disabled {
 
   .terminal-hint {
     display: none;
+  }
+
+  .topbar {
+    padding: 0 12px;
+  }
+
+  .brand-inline span:last-child {
+    display: none;
+  }
+
+  .remote-content {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .remote-card {
+    overflow: visible;
+  }
+
+  .form-grid.three,
+  .form-grid.two,
+  .runtime-summary {
+    grid-template-columns: 1fr;
   }
 }

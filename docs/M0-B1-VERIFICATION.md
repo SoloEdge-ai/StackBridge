@@ -53,7 +53,7 @@ The fixture container is intentionally still running for follow-up work. It is u
 
 ## Remaining boundaries
 
-- Runtime deployment is still a manual prototype. Signed/versioned distribution, atomic upgrade, compatibility negotiation, rollback, and automatic binary digest verification are not implemented.
+- Superseded by M0-B2: versioned deployment, atomic activation, rollback and automatic digest verification are now implemented under `~/.sbridge`; formal release signing remains outstanding.
 - Only Ubuntu 22.04 on amd64 was verified. Ubuntu 24.04, arm64, jump hosts, host-certificate/`@cert-authority` profiles, non-default Docker contexts, rootless Docker, and shell-less images remain unverified. The container helper itself does not require GNU user tools or a shell.
 - M0-B1 covers handshake and ordinary argv execution. Remote PTY, file APIs, task persistence, cancellation confirmation, reconnect, output streaming/backpressure, and durable binding storage remain later work.
 - The M0-B1 protocol revalidates runtime evidence but is not yet wired through Agent Session, approval, action-hash, or operation-deduplication enforcement.

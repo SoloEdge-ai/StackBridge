@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createSshRuntimeClient,
-  m0B1RemoteRuntimePath,
+  managedRemoteRuntimePath,
   resolveKnownHost,
   type RuntimeProcess,
   type SpawnRuntimeProcess,
@@ -216,7 +216,7 @@ describe("SSH runtime client", () => {
         "-l",
         "friden",
         "friden-dev-cube",
-        m0B1RemoteRuntimePath,
+        managedRemoteRuntimePath,
         "stdio",
       ],
       { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
@@ -235,11 +235,13 @@ describe("SSH runtime client", () => {
     const request = await readRequest(process);
     process.stdout.write(
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         id: request.id,
         ok: true,
         result: {
-          protocolVersion: 1,
+          protocolVersion: 2,
+          runtimeVersion: "0.1.0-test",
+          runtimeDigest: `sha256:${"a".repeat(64)}`,
           runtimeInstanceId: "runtime.fixture.1",
           hostBootId: "boot.fixture.1",
           principal: { uid: 1000, gid: 1000, name: "friden" },
@@ -284,7 +286,7 @@ describe("SSH runtime client", () => {
     const request = await readRequest(process);
 
     expect(request).toMatchObject({
-      version: 1,
+      version: 2,
       method: "exec",
       params: {
         cwd: "/workspace/含 空格",
@@ -296,7 +298,7 @@ describe("SSH runtime client", () => {
 
     process.stdout.write(
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         id: request.id,
         ok: true,
         result: {
@@ -350,7 +352,7 @@ describe("SSH runtime client", () => {
 
     process.stdout.write(
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         id: request.id,
         ok: true,
         result: { exitCode: 0, stdout, stderr, timedOut: false },
@@ -382,11 +384,13 @@ describe("SSH runtime client", () => {
     const request = await readRequest(process);
     process.stdout.write(
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         id: request.id,
         ok: true,
         result: {
-          protocolVersion: 1,
+          protocolVersion: 2,
+          runtimeVersion: "0.1.0-test",
+          runtimeDigest: `sha256:${"b".repeat(64)}`,
           runtimeInstanceId: "runtime.fixture.after-oversize",
           hostBootId: "boot.fixture.after-oversize",
           principal: { uid: 1000, gid: 1000 },
@@ -424,7 +428,7 @@ describe("SSH runtime client", () => {
       await vi.advanceTimersByTimeAsync(11);
       process.stdout.write(
         `${JSON.stringify({
-          version: 1,
+          version: 2,
           id: request.id,
           ok: true,
           result: { exitCode: 0, stdout: "", stderr: "", timedOut: false },
@@ -462,7 +466,7 @@ describe("SSH runtime client", () => {
 
     process.stdout.write(
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         id: requests[0]!.id,
         ok: true,
         result: { exitCode: 0, stdout: "", stderr: "", timedOut: false },
@@ -473,11 +477,13 @@ describe("SSH runtime client", () => {
     expect(requests).toHaveLength(2);
     process.stdout.write(
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         id: requests[1]!.id,
         ok: true,
         result: {
-          protocolVersion: 1,
+          protocolVersion: 2,
+          runtimeVersion: "0.1.0-test",
+          runtimeDigest: `sha256:${"c".repeat(64)}`,
           runtimeInstanceId: "runtime.fixture.serial",
           hostBootId: "boot.fixture.serial",
           principal: { uid: 1000, gid: 1000 },

@@ -51,7 +51,7 @@ func TestServerReturnsVerifiedDockerBindingEvidence(t *testing.T) {
 			},
 		},
 	})
-	input := strings.NewReader(`{"version":1,"id":"docker-inspect-1","method":"docker.inspect","params":{"contextName":"default","selector":"stackbridge-fixture","requestedUser":"0:0","cwd":"/workspace"}}` + "\n")
+	input := strings.NewReader(`{"version":2,"id":"docker-inspect-1","method":"docker.inspect","params":{"contextName":"default","selector":"stackbridge-fixture","requestedUser":"0:0","cwd":"/workspace"}}` + "\n")
 	var output bytes.Buffer
 
 	if err := server.Serve(context.Background(), input, &output); err != nil {
@@ -90,7 +90,7 @@ func TestServerReportsAStaleDockerBindingBeforeExecution(t *testing.T) {
 		},
 	})
 	request := map[string]any{
-		"version": 1,
+		"version": 2,
 		"id":      "docker-exec-stale",
 		"method":  "docker.exec",
 		"params": map[string]any{

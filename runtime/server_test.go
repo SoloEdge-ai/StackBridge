@@ -12,7 +12,7 @@ func TestServerReturnsRuntimeIdentityForHandshake(t *testing.T) {
 	t.Parallel()
 
 	identity := RuntimeIdentity{
-		ProtocolVersion:   1,
+		ProtocolVersion:   ProtocolVersion,
 		RuntimeInstanceID: "runtime.fixture.1",
 		HostBootID:        "aa4bf2ca-5bc6-424f-98f9-22a671d323ce",
 		Principal: Principal{
@@ -33,7 +33,7 @@ func TestServerReturnsRuntimeIdentityForHandshake(t *testing.T) {
 			return identity, nil
 		},
 	})
-	input := strings.NewReader("{\"version\":1,\"id\":\"handshake-1\",\"method\":\"handshake\",\"params\":{}}\n")
+	input := strings.NewReader("{\"version\":2,\"id\":\"handshake-1\",\"method\":\"handshake\",\"params\":{}}\n")
 	var output bytes.Buffer
 
 	if err := server.Serve(context.Background(), input, &output); err != nil {
@@ -44,7 +44,7 @@ func TestServerReturnsRuntimeIdentityForHandshake(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
 		t.Fatalf("response was not JSON: %v", err)
 	}
-	if response.Version != 1 || response.ID != "handshake-1" || !response.OK {
+	if response.Version != ProtocolVersion || response.ID != "handshake-1" || !response.OK {
 		t.Fatalf("unexpected response envelope: %#v", response)
 	}
 	result, ok := response.Result.(map[string]any)
@@ -82,7 +82,7 @@ func TestServerPassesStructuredArgvToTheExecutorWithoutShellParsing(t *testing.T
 			return ExecResult{ExitCode: 0, Stdout: "fixture-ok\n"}, nil
 		},
 	})
-	input := strings.NewReader("{\"version\":1,\"id\":\"exec-1\",\"method\":\"exec\",\"params\":{\"cwd\":\"/workspace/含 空格\",\"program\":\"/usr/bin/printf\",\"args\":[\"%s\\\\n\",\"空 格\",\"quote\\\"and'apostrophe\",\"line1\\nline2\"],\"timeoutMs\":5000}}\n")
+	input := strings.NewReader("{\"version\":2,\"id\":\"exec-1\",\"method\":\"exec\",\"params\":{\"cwd\":\"/workspace/含 空格\",\"program\":\"/usr/bin/printf\",\"args\":[\"%s\\\\n\",\"空 格\",\"quote\\\"and'apostrophe\",\"line1\\nline2\"],\"timeoutMs\":5000}}\n")
 	var output bytes.Buffer
 
 	if err := server.Serve(context.Background(), input, &output); err != nil {
@@ -110,7 +110,7 @@ func TestServerIgnoresBlankLinesBetweenRequests(t *testing.T) {
 			return RuntimeIdentity{ProtocolVersion: ProtocolVersion}, nil
 		},
 	})
-	input := strings.NewReader("\n{\"version\":1,\"id\":\"handshake-blank-lines\",\"method\":\"handshake\",\"params\":{}}\n\n")
+	input := strings.NewReader("\n{\"version\":2,\"id\":\"handshake-blank-lines\",\"method\":\"handshake\",\"params\":{}}\n\n")
 	var output bytes.Buffer
 
 	if err := server.Serve(context.Background(), input, &output); err != nil {

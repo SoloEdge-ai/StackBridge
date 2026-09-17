@@ -1,9 +1,13 @@
 import type { AddressInfo } from "node:net";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 import { createCoreServer, type CoreServer } from "./server.js";
+import {
+  RemoteDeploymentApprovalRequiredError,
+  type RemoteSessionService,
+} from "./remote-session-manager.js";
 import { TerminalSessionManager } from "./terminal-session.js";
 import { ControlledPty } from "./test/controlled-pty.js";
 
@@ -151,6 +155,99 @@ describe("Core browser boundary", () => {
     expect(
       await rejectedWebSocketStatus(baseUrl, created.id, { origin }),
     ).toBe(401);
+  });
+
+  it("requires deployment approval and then exposes remote argv execution", async () => {
+    const sessionId = "11111111-1111-4111-8111-111111111111";
+    const approvalId = "22222222-2222-4222-8222-222222222222";
+    const proposal = {
+      reason: "missing" as const,
+      installRoot: "~/.sbridge" as const,
+      runtimeVersion: "0.1.0",
+      runtimeDigest: `sha256:${"a".repeat(64)}`,
+      platform: "linux" as const,
+      arch: "amd64" as const,
+      user: "friden",
+      host: "friden-dev-cube",
+      hostKeyFingerprint: "SHA256:test",
+      permissions: "0700 directories, 0755 runtime" as const,
+      cleanup: "Disconnect StackBridge, then remove ~/.sbridge" as const,
+    };
+    const remoteSessions: RemoteSessionService = {
+      connect: vi.fn(async (input: unknown) => {
+        const request = input as { deploymentApprovalId?: string };
+        if (request.deploymentApprovalId !== approvalId) {
+          throw new RemoteDeploymentApprovalRequiredError(approvalId, proposal);
+        }
+        return {
+          sessionId,
+          targetKind: "ssh" as const,
+          host: "friden-dev-cube",
+          user: "friden",
+          hostKeyFingerprint: "SHA256:test",
+          runtimeVersion: "0.1.0",
+          runtimeDigest: `sha256:${"a".repeat(64)}`,
+          arch: "amd64",
+          defaultCwd: "/home/friden",
+          shell: "/bin/bash",
+          deployment: "installed" as const,
+        };
+      }),
+      execute: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: "friden\n",
+        stderr: "",
+        timedOut: false,
+      })),
+      close: vi.fn(() => true),
+      disposeAll: vi.fn(),
+    };
+    core = createCoreServer({
+      launchToken: "launch-secret",
+      allowedOrigins: [origin],
+      terminalSessions: new TerminalSessionManager(() => new ControlledPty()),
+      remoteSessions,
+    });
+    const baseUrl = await listen(core);
+    const cookie = await authenticate(baseUrl);
+    const request = {
+      host: "friden-dev-cube",
+      port: 22,
+      user: "friden",
+    };
+
+    const pending = await fetch(`${baseUrl}/v1/remote-sessions`, {
+      method: "POST",
+      headers: { origin, cookie, "content-type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    expect(pending.status).toBe(409);
+    expect(await pending.json()).toEqual({
+      error: "deployment_approval_required",
+      approvalId,
+      proposal,
+    });
+
+    const connected = await fetch(`${baseUrl}/v1/remote-sessions`, {
+      method: "POST",
+      headers: { origin, cookie, "content-type": "application/json" },
+      body: JSON.stringify({ ...request, deploymentApprovalId: approvalId }),
+    });
+    expect(connected.status).toBe(201);
+    expect(await connected.json()).toMatchObject({ sessionId, deployment: "installed" });
+
+    const executed = await fetch(`${baseUrl}/v1/remote-sessions/${sessionId}/manual-execute`, {
+      method: "POST",
+      headers: { origin, cookie, "content-type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/home/friden",
+        program: "/usr/bin/id",
+        args: ["-un"],
+        timeoutMs: 15_000,
+      }),
+    });
+    expect(executed.status).toBe(200);
+    expect(await executed.json()).toMatchObject({ exitCode: 0, stdout: "friden\n" });
   });
 
   async function authenticate(baseUrl: string): Promise<string> {

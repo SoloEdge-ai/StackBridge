@@ -14,7 +14,7 @@ func TestLinuxIdentityProviderReportsTheAuthenticatedRuntimePrincipal(t *testing
 	if err != nil {
 		t.Fatalf("identity probe failed: %v", err)
 	}
-	if identity.ProtocolVersion != 1 || identity.RuntimeInstanceID != "runtime.test.1" {
+	if identity.ProtocolVersion != ProtocolVersion || identity.RuntimeInstanceID != "runtime.test.1" {
 		t.Fatalf("unexpected protocol identity: %#v", identity)
 	}
 	if identity.HostBootID == "" || identity.Platform != "linux" || identity.Arch == "" {

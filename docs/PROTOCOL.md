@@ -1,7 +1,7 @@
 # M0-A Core 协议
 
-更新日期：2026-09-17  
-状态：M0-A 原型协议；后续版本需要显式版本协商。
+更新日期：2026-09-18
+状态：M0-A 本地终端与 M0-B2 远端会话原型协议。
 
 ## 传输边界
 
@@ -116,3 +116,38 @@ Core 最多同时持有 16 个终端会话；达到上限时先淘汰已退出�
 - 同一终端只有一个 WebSocket 持有写入租约。首个连接默认可写，后续连接只读；只读客户端可发送 `acquireWriteLease` 显式接管，原写者随即收到 `writable: false`。写者断开后租约自动转交给最近连接。
 - Core 为每个 WebSocket 设置 2 MiB 待发送上限，Web 渲染队列设置 4 MiB 上限；慢客户端超过上限时以 `1013` 断开，避免无界内存增长。
 - 终端数据仍是不可信字节流，只交给 xterm.js 渲染，不解析为权限、目标身份或控制指令。
+
+## 远端会话 HTTP
+
+所有端点继续要求有效的本地认证 cookie 和允许的 `Origin`。
+
+### `POST /v1/remote-sessions`
+
+请求包含 SSH 主机、端口、用户以及可选 Docker 目标。首次请求只探测并比较版本；如需写入，返回 `409 deployment_approval_required`、部署提案和短时有效的一次性 `approvalId`。UI 冻结连接字段并展示提案，确认后以完全相同的参数和 `deploymentApprovalId` 重试。Core 同时复核目标参数以及提案中的主机指纹、版本、架构和摘要；任一变化都会废弃旧授权并要求重新确认。
+
+成功返回内存会话 ID、目标类型、核验过的主机指纹、runtime 版本/摘要、架构、cwd、shell 与部署结果。密码、私钥、口令和令牌不属于该请求。Core 最多保留 16 个远端会话，达到上限时返回 `503 remote_session_limit_reached`，避免无界创建 SSH runtime 进程。
+
+### `POST /v1/remote-sessions/:id/manual-execute`
+
+请求为严格的结构化 argv：
+
+```json
+{
+  "cwd": "/workspace",
+  "program": "/usr/bin/uname",
+  "args": ["-a"],
+  "timeoutMs": 15000
+}
+```
+
+Core 从服务端会话取得 SSH 或 Docker 绑定；浏览器不能在执行请求中更换主机、容器、daemon 或 UID。响应包含退出码、stdout、stderr、超时与截断标记。该端点只服务于已认证本地用户在 UI 中填写并点击“运行”的手动操作，不暴露给模型或 Tool Gateway；M0-C 的模型工具执行必须另行经过 `ExecutionRequest`、action hash、审批和一次性能力票据。
+
+### `DELETE /v1/remote-sessions/:id`
+
+关闭 SSH runtime 连接并删除内存会话。Core 退出时也会关闭全部远端会话。
+
+## Go runtime protocol 2
+
+M0-B2 将 SSH stdio 协议从 1 升至 2。握手增加 `runtimeVersion` 与当前可执行文件的 `runtimeDigest`；Core 只接受与本地已批准产物清单完全一致的身份。旧协议 runtime 被视为需要升级，不会作为就绪会话使用。
+
+固定 CLI 模式为 `version`、`install`、`rollback`、`stdio`、`container-probe` 和 `container-exec`。部署参数通过有界严格 JSON stdin 传入；远端命令只包含固定程序路径、固定模式和应用生成的安全部署 ID。

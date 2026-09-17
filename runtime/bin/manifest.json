@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "runtimeVersion": "0.1.0-dev",
+  "protocolVersion": 2,
+  "artifacts": [
+    {
+      "platform": "linux",
+      "arch": "amd64",
+      "file": "linux-amd64/stackbridge-runtime",
+      "sha256": "sha256:b0752a0e9d1f8ad731afd5c48dde5cfae4f824ff8ed8d74a145927dba5564d9f"
+    },
+    {
+      "platform": "linux",
+      "arch": "arm64",
+      "file": "linux-arm64/stackbridge-runtime",
+      "sha256": "sha256:0647bdc699223137f3d8b03fe7e1a315c25cc956b11d9529f23a08c2ee84b6c1"
+    }
+  ]
+}
