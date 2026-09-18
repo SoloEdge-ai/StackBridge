@@ -6,8 +6,8 @@
 
 - 文件：`release/StackBridge-Portable-x64.exe`
 - 架构：Windows x64
-- 大小：179,536,269 bytes（171.2 MiB）
-- SHA-256：`6B5BE4C08C92283754727585C14F39D4AA8A20337BD8594F308C513D8B7A19EE`
+- 大小：179,537,796 bytes（171.2 MiB）
+- SHA-256：`E1C0C04A01CAAC9A745F6FF392BB27E63F7FC0E19C80A97BE95E2DCBC9B77BD7`
 - 签名状态：未签名
 
 `release/` 是本地构建输出并被 Git 忽略，不提交二进制。使用 `pnpm desktop:portable` 可从已锁定依赖重新生成。
@@ -32,6 +32,7 @@
 14. Codex App Server 使用独立 `CODEX_HOME` 和文件型凭据存储，避免 Windows keyring 对长 OAuth token 的长度限制。
 15. 手输 SSH 后进入 Bash/Zsh Docker 时，产物内包含命令作用域子标记、随机临时 rc 注入和完整链路回显；真实 Playwright 已验证内部命令归属及原始 `.bashrc`/`.zshrc` 哈希不变。
 16. 手输 `ssh L001` 时，打包后的 PTY 与远端 Shell 均使用 `TERM=xterm-256color`，并选择远端已有的 UTF-8 locale；真实 Playwright 确认 Oh My Zsh 提示符显示为 `➜`，不会再出现 `?➜`。
+17. 新 EXE 本体在随机回环端口启动后，Playwright 验证 `Ctrl+Shift+Space` 在终端内打开 Quick Ask、Esc 保留未提交输入，并通过随包 Codex App Server 收到一次真实模型回答。
 
 ## 当前边界
 

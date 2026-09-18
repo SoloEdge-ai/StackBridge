@@ -9,7 +9,7 @@
 - 原 53px 全局环境栏已移除；每个终端窗格内用 27px 紧凑状态线持续显示本地 → SSH → Docker 层级、cwd、Shell 和核验状态。受管 PowerShell/Bash/Zsh 在每次提示符前回显同一链路；完整 Docker binding 使用 runtime 核验的 daemon、容器 ID、启动时间和 init start ticks。
 - `CommandBlock` 记录人工/AI 来源、环境层、binding、cwd、用户、Shell、时间、退出码、输出范围与捕获质量；运行中的命令可生成截至提问时的屏幕输出快照。
 - 一个 `ConversationSession` 对应一个 Codex thread；每次 turn 冻结独立 `AgentSession`。跨终端提问保留同一对话，并插入环境时间线。
-- Codex App Server 使用独立 `CODEX_HOME`、文件型凭据存储和只读 sandbox；`auth.json` 位于当前 Windows 用户的 StackBridge 数据目录，避开系统 keyring 对长 OAuth token 的 2560 字符限制。便携版固定携带 `codex-cli 0.155.0-alpha.2.6`，模型目录来自 App Server（Astra、Sol、Terra、Luna、GPT-5.5），新对话默认 Luna。关闭原生 shell/web search，不向模型提供文件、浏览器、插件或子代理工具。
+- Codex App Server 使用独立 `CODEX_HOME`、文件型凭据存储和只读 sandbox；`auth.json` 位于当前 Windows 用户的 StackBridge 数据目录，避开系统 keyring 对长 OAuth token 的 2560 字符限制。便携版固定携带 `codex-cli 0.155.0-alpha.2.6`，模型目录来自 App Server（Astra、Sol、Terra、Luna、GPT-5.5），新对话默认 Luna。`thread/start` 与 `turn/start` 只发送稳定 API 字段，避免未声明 experimental capability 时被拒绝。关闭原生 shell/web search，不向模型提供文件、浏览器、插件或子代理工具。
 - Web UI 默认英文；Settings 中可即时切换简体中文并持久化。环境链、状态、连接表单、AI 面板、建议卡和错误提示随语言切换；终端进程已经输出的原始字节不会被改写。
 - 默认上下文为最近 20 条命令摘要、最近 3 条输出和显式引用记录，总输出上限 64 KiB；清理 ANSI/OSC，并对私钥块和常见 token 前缀做基础脱敏。
 - 模型输出被 Core 转换为不可变 `CommandProposal`。建议绑定终端、环境层、binding、cwd、Shell、上下文版本和输入版本，五分钟过期。
@@ -30,7 +30,7 @@
 4. 在容器设置 `APP_ENV=stackbridge` 并切换到 `/tmp`；页面刷新后重新附着同一 PTY，变量与 cwd 保留，命令没有重跑。
 5. 回放期间暂停 xterm 自动回复的输入转发，避免刷新时把 terminal capability response 写入当前提示符。
 6. runtime 版本变化触发一次性部署提案；批准后安装到 `~/.sbridge`，随后连接静默复用匹配摘要的产物。
-7. Playwright 从无 Cookie 的新浏览器直接打开工作台，无需任何启动令牌；真实输入 PowerShell 命令并看到输出，快捷键可收放 AI 面板。
+7. Playwright 从无 Cookie 的新浏览器直接打开工作台，无需任何启动令牌；真实输入 PowerShell 命令并看到输出。`Ctrl+Shift+Space` 在当前窗格底部打开 Quick Ask，Esc 返回终端且未提交的 PowerShell 输入保持不变；默认不占用右侧面板。
 8. Playwright 经 UI 连接真实 `friden-dev-cube` SSH/Zsh 和 Ubuntu 22.04 Docker/Bash，环境均为已核验，实际命令输出分别为 `PLAYWRIGHT_SSH_OK` 与 `PLAYWRIGHT_DOCKER_OK`；在 UI 创建的受管 SSH 终端内继续手输 `docker exec -it ... bash`，也能加载命令作用域集成、显示完整链路和记录内部命令，退出后恢复受管 SSH。
 9. 关闭终端标签会终止对应 PTY、释放本地和远端会话容量；Playwright 每条用例清理自己创建的终端，长期运行 Core 不再因测试积累达到 16 会话上限。
 10. Playwright 在本地 PowerShell 手输 `ssh friden-dev-cube`，确认 cwd/Shell 更新为 `/home/friden` 与 Zsh；随后分别手输 `docker exec -it stackbridge-m0b1-ubuntu22 bash` 和 `docker exec -it pedantic_vaughan zsh`。两种容器 Shell 连续执行两条命令后，每次提示符都重新显示完整 Docker 层；命令 API 将内部命令归属到 Docker frame，退出后恢复 SSH 层，进入前后的 `.bashrc`/`.zshrc` SHA-256 保持不变；远端 Zsh 执行 `clear` 后旧内容从 xterm 视口消失，并收到标准清屏序列。
@@ -39,6 +39,10 @@
 13. `L001` 的登录环境原始 charmap 为 `ANSI_X3.4-1968`，且从未声明 `TERM` 的 Windows PTY 发起 SSH 时远端终端会退化为 `dumb`；StackBridge 现在为 PTY 与远端会话声明 `xterm-256color`，并从远端已安装 locale 中选择 `C.UTF-8`。Playwright 确认 `$TERM` 为 `xterm-256color`、`locale charmap` 返回 `UTF-8`、Oh My Zsh 的 `➜` 正常显示，且不存在 `?➜` 或连续问号。服务器系统 locale 与 `.zshrc` 均未修改。
 14. Playwright 验证首次启动默认英文，Settings 中切换简体中文后全部主要入口即时更新，刷新后语言选择仍然保留。
 15. 用户侧真实 OAuth 到达授权完成回调后暴露 keyring 长度失败；回归测试先复现 App Server 启动参数强制 keyring，再验证改为官方 `file` 存储。真实 App Server 已成功返回 `auth.openai.com` 授权地址并完成取消流程。
+16. 真实 ChatGPT 登录状态下，Playwright 从当前 PowerShell 窗格打开 Quick Ask，向随包 Codex App Server 发起 Luna 回合并收到精确哨兵回答；同一用例在开发服务器和本次便携 EXE 的随机回环 Core 上均通过。
+17. 右键“解释最近输出 / 修复最近命令”在命令块标记尚未到达时仍可用，Core 会用该终端冻结快照与默认最近记录构建上下文；若已有精确命令 ID，则额外固定引用该命令。
+18. 横向分栏中分别输入两份未发送的 Quick Ask 草稿，切换焦点后两份草稿互不串线；后续提问目标始终取当前聚焦窗格。
+19. 再次按 `Ctrl+Shift+Space` 会关闭 Quick Ask、把焦点还给原 xterm，并保持 Shell 输入缓冲；内联回答和运行中状态只显示在发起该 turn 的窗格。停止生成会立即恢复该窗格草稿，同时取消原 Codex turn。
 
 ## 自动化验证
 
@@ -49,7 +53,7 @@
 - 审批 HTTP/WS：浏览器不能注入命令字段；无写入租约拒绝；批准只写入一次；重复请求返回同一 operation。
 - SQLite：重启后恢复对话/建议/operation，批准记录在 PTY 写入前落盘；命令元数据和分块输出可读，超出预算后只清理输出。
 - Go runtime：身份、结构化 argv、Docker binding、超时、安装路径和 Bash 优先探测。
-- Playwright：8 条基线 Chromium 用例加 1 条 `L001` 条件用例，覆盖英文默认/中文持久化、零令牌启动、本地真实终端、AI 快捷键、左右/上下分栏、布局恢复、真实受管 SSH/Docker 分栏与链路回显、受管 SSH 内继续手输 Docker、ASCII 登录环境的 UTF-8 与 `xterm-256color` 提示符，以及手输 SSH → Bash/Zsh Docker 后的容器命令归属、持续链路回显、rc 哈希不变与环境退出。
+- Playwright：11 条 Chromium 用例（基础与真实 AI/远端条件用例），覆盖英文默认/中文持久化、零令牌启动、本地真实终端、窗格内 Quick Ask、输入缓冲保留、真实 Codex 回答、右键 AI 操作、左右/上下分栏、布局恢复、真实受管 SSH/Docker 分栏与链路回显、受管 SSH 内继续手输 Docker、ASCII 登录环境的 UTF-8 与 `xterm-256color` 提示符，以及手输 SSH → Bash/Zsh Docker 后的容器命令归属、持续链路回显、rc 哈希不变与环境退出。
 
 运行：
 
@@ -63,7 +67,7 @@ $env:STACKBRIDGE_E2E_REMOTE='1'; pnpm --filter @stackbridge/web test:e2e
 
 ## 外部阻塞与兼容边界
 
-StackBridge 能启动官方 ChatGPT OAuth，并支持查询、取消和退出登录。用户提供的真实回调证据表明授权已经完成，但旧版本强制使用 Windows keyring，超长 OAuth token 因平台 2560 字符限制无法保存。现按官方 Codex 配置改为 `cli_auth_credentials_store="file"`，使用 StackBridge 独立 `CODEX_HOME/auth.json`；启动参数回归测试和真实 App Server 的登录启动/取消已通过。真实模型回答和真实建议卡仍需要用户在新便携版中重新登录后完成最终验收；StackBridge 不复制现有 Codex token。
+StackBridge 能启动官方 ChatGPT OAuth，并支持查询、取消和退出登录。旧版本强制使用 Windows keyring，超长 OAuth token 因平台 2560 字符限制无法保存；现按官方 Codex 配置改为 `cli_auth_credentials_store="file"`，使用 StackBridge 独立 `CODEX_HOME/auth.json`。启动参数回归、凭据持久化、真实 App Server 登录和真实模型回合已经通过；StackBridge 不复制现有 Codex token。
 
 当前 Shell 标记用于阻止普通输出和意外 OSC 注入，不是针对同一操作系统用户下恶意进程的强认证边界：同 UID 进程可能读取 Shell 启动参数或私有 rc 文件中的标记并伪造命令状态，但不能伪造 Core 核验的 runtime binding。在改为当前用户专用命名管道/Unix socket 前，不把该标记等同于受限 IPC 的安全强度。
 

@@ -97,7 +97,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   await expect(page.locator(".environment-bar")).toHaveCount(0);
   await expect(page.locator(".terminal-pane-context")).toContainText("Local Windows");
   await expect(page.locator(".terminal-host .xterm")).toBeVisible();
-  await expect(page.locator(".assistant-panel")).toBeVisible();
+  await expect(page.locator(".assistant-panel")).toHaveCount(0);
   await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
     "Local Windows",
     { timeout: 10_000 },
@@ -124,10 +124,61 @@ test("opens without a launch token and drives the real terminal workbench", asyn
     fullPage: true,
   });
 
+  await terminalInput.focus();
+  await terminalInput.pressSequentially("Write-Output 'BUFFER_", { delay: 8 });
   await page.keyboard.press("Control+Shift+Space");
+  const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
+  await expect(inlineAssistant).toBeVisible();
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
+  await page.screenshot({
+    path: resolve(screenshotDirectory, "08-inline-terminal-ai.png"),
+    fullPage: true,
+  });
   await page.keyboard.press("Control+Shift+Space");
-  await expect(page.locator(".assistant-panel")).toBeVisible();
+  await expect(inlineAssistant).toHaveCount(0);
+  await expect(terminalInput).toBeFocused();
+  await terminalInput.pressSequentially("PRESERVED'", { delay: 8 });
+  await terminalInput.press("Enter");
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
+    "BUFFER_PRESERVED",
+    { timeout: 10_000 },
+  );
+});
+
+test("asks the real Codex account from the active terminal pane", async ({ page }) => {
+  test.skip(process.env.STACKBRIDGE_E2E_AI !== "1", "requires an authenticated ChatGPT account");
+  test.setTimeout(120_000);
+  await page.goto("/");
+  await expect(page.locator(".terminal-pane-context")).toContainText("Local Windows");
+
+  await page.keyboard.press("Control+Shift+Space");
+  const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
+  await expect(inlineAssistant).toBeVisible();
+  const prompt = inlineAssistant.locator("textarea");
+  await expect(prompt).toBeFocused();
+  await prompt.fill("Reply with exactly STACKBRIDGE_INLINE_AI_OK and no other text. Do not propose a command.");
+  await prompt.press("Enter");
+
+  await expect(inlineAssistant.locator(".inline-ai-response")).toContainText(
+    "STACKBRIDGE_INLINE_AI_OK",
+    { timeout: 90_000 },
+  );
+  await expect(page.locator(".assistant-panel")).toHaveCount(0);
+});
+
+test("offers AI actions beside the latest terminal output", async ({ page }) => {
+  await page.goto("/");
+  const pane = page.getByRole("group", { name: "Terminal pane" });
+  const terminalInput = pane.locator(".xterm-helper-textarea");
+  await terminalInput.focus();
+  await terminalInput.pressSequentially("Write-Output 'AI_CONTEXT_READY'", { delay: 8 });
+  await terminalInput.press("Enter");
+  await expect(pane.locator(".xterm-rows")).toContainText("AI_CONTEXT_READY", { timeout: 10_000 });
+
+  await pane.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "Terminal actions" });
+  await expect(menu.getByRole("menuitem", { name: "Explain latest output" })).toBeEnabled();
+  await expect(menu.getByRole("menuitem", { name: "Fix latest command" })).toBeEnabled();
 });
 
 test("splits the active terminal horizontally from its context menu", async ({ page }) => {
@@ -137,10 +188,24 @@ test("splits the active terminal horizontally from its context menu", async ({ p
   await expect(panes).toHaveCount(1);
   await panes.first().click({ button: "right" });
 
-  const menu = page.getByRole("menu", { name: "Split terminal" });
+  const menu = page.getByRole("menu", { name: "Terminal actions" });
   await expect(menu).toBeVisible();
   await page.getByRole("menuitem", { name: "Split horizontally (side by side)" }).click();
   await expect(panes).toHaveCount(2);
+
+  await panes.nth(0).locator(".xterm-helper-textarea").focus();
+  await page.keyboard.press("Control+Shift+Space");
+  await panes.nth(0).locator(".inline-assistant textarea").fill("FIRST_PANE_DRAFT");
+  await page.keyboard.press("Escape");
+  await panes.nth(1).locator(".xterm-helper-textarea").focus();
+  await page.keyboard.press("Control+Shift+Space");
+  await expect(panes.nth(1).locator(".inline-assistant textarea")).toHaveValue("");
+  await panes.nth(1).locator(".inline-assistant textarea").fill("SECOND_PANE_DRAFT");
+  await page.keyboard.press("Escape");
+  await panes.nth(0).locator(".xterm-helper-textarea").focus();
+  await page.keyboard.press("Control+Shift+Space");
+  await expect(panes.nth(0).locator(".inline-assistant textarea")).toHaveValue("FIRST_PANE_DRAFT");
+  await page.keyboard.press("Escape");
 
   const firstBox = await panes.nth(0).boundingBox();
   const secondBox = await panes.nth(1).boundingBox();
@@ -157,6 +222,10 @@ test("splits the active terminal horizontally from its context menu", async ({ p
     "SPLIT_RIGHT_OK",
     { timeout: 10_000 },
   );
+  await page.keyboard.press("Control+Shift+Space");
+  await expect(panes.nth(1).locator(".inline-assistant")).toBeVisible();
+  await expect(panes.nth(0).locator(".inline-assistant")).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await page.screenshot({
     path: resolve(screenshotDirectory, "06-horizontal-terminal-split.png"),
     fullPage: true,
@@ -300,7 +369,7 @@ test("keeps verified SSH and Docker environment chains when splitting panes", as
   );
   const panes = page.getByRole("group", { name: "Terminal pane" });
   await panes.first().click({ button: "right" });
-  await expect(page.getByRole("menu", { name: "Split terminal" })).toContainText("Same SSH target");
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toContainText("Same SSH target");
   await page.getByRole("menuitem", { name: "Split horizontally (side by side)" }).click();
   await expect(panes).toHaveCount(2);
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
@@ -330,7 +399,7 @@ test("keeps verified SSH and Docker environment chains when splitting panes", as
     { timeout: 30_000 },
   );
   await panes.first().click({ button: "right" });
-  await expect(page.getByRole("menu", { name: "Split terminal" })).toContainText("Same Docker target");
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toContainText("Same Docker target");
   await page.getByRole("menuitem", { name: "Split vertically (stacked)" }).click();
   await expect(panes).toHaveCount(2);
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(

@@ -14,6 +14,7 @@ import {
   serverTerminalMessageSchema,
   terminalSessionSnapshotSchema,
   type AiAccountStatus,
+  type ApprovalDecisionRequest,
   type CommandProposal,
   type ConversationSnapshot,
   type OperationSnapshot,
@@ -35,6 +36,8 @@ type AuthState = "checking" | "unavailable" | "authenticated";
 type ConnectionState = "connecting" | "running" | "exited" | "unavailable";
 type TerminalKind = "local" | "ssh" | "docker";
 type SplitDirection = "horizontal" | "vertical";
+type ApprovalDecision = ApprovalDecisionRequest["decision"];
+type ConversationMessage = ConversationSnapshot["messages"][number];
 
 interface TerminalPaneItem {
   id: string;
@@ -100,6 +103,235 @@ interface CodexModel {
   isDefault: boolean;
 }
 
+interface AssistantController {
+  account: AiAccountStatus | undefined;
+  models: CodexModel[];
+  model: string;
+  conversation: ConversationSnapshot | undefined;
+  conversations: ConversationSnapshot[];
+  message: string;
+  pendingMessage: string | undefined;
+  pendingTerminalId: string | undefined;
+  inlineAssistantMessage: ConversationMessage | undefined;
+  sending: boolean;
+  error: string | undefined;
+  errorTerminalId: string | undefined;
+  loginId: string | undefined;
+  setModel(value: string): void;
+  setMessage(value: string, terminalIdOverride?: string): void;
+  selectConversation(id: string): void;
+  newConversation(): void;
+  refreshAccount(): Promise<void>;
+  login(): Promise<void>;
+  cancelLogin(): Promise<void>;
+  send(text?: string, commandIds?: string[], terminalIdOverride?: string): Promise<void>;
+  decide(proposal: CommandProposal, decision: ApprovalDecision): Promise<void>;
+  stop(): void;
+}
+
+function useAssistantController(terminalId: string): AssistantController {
+  const { t } = useLanguage();
+  const [account, setAccount] = useState<AiAccountStatus>();
+  const [models, setModels] = useState<CodexModel[]>([]);
+  const [model, setModel] = useState("gpt-5.6-luna");
+  const [conversation, setConversation] = useState<ConversationSnapshot>();
+  const [conversations, setConversations] = useState<ConversationSnapshot[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [pendingMessage, setPendingMessage] = useState<string>();
+  const [pendingTerminalId, setPendingTerminalId] = useState<string>();
+  const [inlineMessageIds, setInlineMessageIds] = useState<Record<string, string>>({});
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string>();
+  const [errorTerminalId, setErrorTerminalId] = useState<string>();
+  const [loginId, setLoginId] = useState<string>();
+  const turnRequestVersion = useRef(0);
+  const activeTurnConversationId = useRef<string | undefined>(undefined);
+
+  const refreshAccount = useCallback(async () => {
+    const response = await fetch("/v1/ai/account/status", { cache: "no-store" });
+    setAccount(await response.json() as AiAccountStatus);
+  }, []);
+  const refreshConversations = useCallback(async () => {
+    const response = await fetch("/v1/conversations", { cache: "no-store" });
+    if (response.ok) setConversations(((await response.json()) as { data: ConversationSnapshot[] }).data);
+  }, []);
+
+  useEffect(() => {
+    void refreshAccount();
+    void refreshConversations();
+    void fetch("/v1/ai/models", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return;
+      const data = ((await response.json()) as { data: CodexModel[] }).data;
+      setModels(data);
+      const preferred = data.find((item) => item.model === "gpt-5.6-luna")
+        ?? data.find((item) => item.isDefault)
+        ?? data[0];
+      if (preferred) setModel(preferred.model);
+    });
+  }, [refreshAccount, refreshConversations]);
+
+  const createConversation = useCallback(async (targetTerminalId: string): Promise<ConversationSnapshot> => {
+    if (!targetTerminalId) throw new Error(t("正在准备终端…"));
+    const created = await api<ConversationSnapshot>("/v1/conversations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, model }),
+    }, t);
+    const parsed = conversationSnapshotSchema.parse(created);
+    setConversation(parsed);
+    await refreshConversations();
+    return parsed;
+  }, [model, refreshConversations, t]);
+
+  async function login() {
+    setError(undefined);
+    setErrorTerminalId(undefined);
+    try {
+      const result = await api<{ loginId: string; authUrl: string }>("/v1/ai/account/login", { method: "POST" }, t);
+      setLoginId(result.loginId);
+      window.open(result.authUrl, "_blank", "noopener,noreferrer");
+      const interval = window.setInterval(() => void refreshAccount(), 1_500);
+      window.setTimeout(() => clearInterval(interval), 120_000);
+    } catch (reason) {
+      setError(errorMessage(reason, t));
+    }
+  }
+
+  async function cancelLogin() {
+    if (!loginId) return;
+    setError(undefined);
+    setErrorTerminalId(undefined);
+    try {
+      await api("/v1/ai/account/login/cancel", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ loginId }),
+      }, t);
+      setLoginId(undefined);
+    } catch (reason) {
+      setError(errorMessage(reason, t));
+    }
+  }
+
+  const message = drafts[terminalId] ?? "";
+  const inlineAssistantMessage = conversation?.messages.find(
+    (item) => item.id === inlineMessageIds[terminalId] && item.role === "assistant",
+  );
+  async function send(text?: string, commandIds?: string[], terminalIdOverride?: string) {
+    const targetTerminalId = terminalIdOverride ?? terminalId;
+    const prompt = text ?? drafts[targetTerminalId] ?? "";
+    if (!prompt.trim() || sending) return;
+    const requestVersion = ++turnRequestVersion.current;
+    setSending(true);
+    setError(undefined);
+    setErrorTerminalId(undefined);
+    setPendingMessage(prompt.trim());
+    setPendingTerminalId(targetTerminalId);
+    setDrafts((current) => ({ ...current, [targetTerminalId]: "" }));
+    try {
+      const current = conversation ?? await createConversation(targetTerminalId);
+      if (turnRequestVersion.current !== requestVersion) return;
+      activeTurnConversationId.current = current.id;
+      const updated = await api<ConversationSnapshot>(`/v1/conversations/${current.id}/turns`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, message: prompt.trim(), ...(commandIds ? { commandIds } : {}) }),
+      }, t);
+      const parsed = conversationSnapshotSchema.parse(updated);
+      if (turnRequestVersion.current === requestVersion) {
+        setConversation(parsed);
+        const assistantMessage = [...parsed.messages].reverse().find((item) => item.role === "assistant");
+        if (assistantMessage) {
+          setInlineMessageIds((current) => ({ ...current, [targetTerminalId]: assistantMessage.id }));
+        }
+        await refreshConversations();
+      }
+    } catch (reason) {
+      if (turnRequestVersion.current === requestVersion) {
+        setError(errorMessage(reason, t));
+        setErrorTerminalId(targetTerminalId);
+      }
+    } finally {
+      if (turnRequestVersion.current === requestVersion) {
+        setSending(false);
+        setPendingMessage(undefined);
+        setPendingTerminalId(undefined);
+        activeTurnConversationId.current = undefined;
+      }
+    }
+  }
+
+  async function decide(proposal: CommandProposal, decision: ApprovalDecision) {
+    setError(undefined);
+    setErrorTerminalId(undefined);
+    try {
+      const result = await api<{ proposal: CommandProposal }>(`/v1/approvals/${proposal.id}/decision`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ schemaVersion: 2, decision }),
+      }, t);
+      setConversation((current) => current && ({
+        ...current,
+        proposals: current.proposals.map((item) => item.id === proposal.id ? result.proposal : item),
+      }));
+      if (decision === "insert") window.dispatchEvent(new Event("stackbridge:terminal-focus"));
+    } catch (reason) {
+      setError(errorMessage(reason, t));
+      setErrorTerminalId(proposal.terminalSessionId);
+      if (conversation) {
+        const refreshed = await api<ConversationSnapshot>(`/v1/conversations/${conversation.id}`, undefined, t);
+        setConversation(refreshed);
+      }
+    }
+  }
+
+  return {
+    account,
+    models,
+    model,
+    conversation,
+    conversations,
+    message,
+    pendingMessage,
+    pendingTerminalId,
+    inlineAssistantMessage,
+    sending,
+    error,
+    errorTerminalId,
+    loginId,
+    setModel,
+    setMessage(value, terminalIdOverride) {
+      const targetTerminalId = terminalIdOverride ?? terminalId;
+      setDrafts((current) => ({ ...current, [targetTerminalId]: value }));
+    },
+    selectConversation(id) {
+      setConversation(conversations.find((item) => item.id === id));
+      setInlineMessageIds({});
+    },
+    newConversation() {
+      setConversation(undefined);
+      setInlineMessageIds({});
+    },
+    refreshAccount,
+    login,
+    cancelLogin,
+    send,
+    decide,
+    stop() {
+      const conversationId = activeTurnConversationId.current ?? conversation?.id;
+      turnRequestVersion.current += 1;
+      if (pendingMessage && pendingTerminalId) {
+        setDrafts((current) => ({ ...current, [pendingTerminalId]: pendingMessage }));
+      }
+      setSending(false);
+      setPendingMessage(undefined);
+      setPendingTerminalId(undefined);
+      activeTurnConversationId.current = undefined;
+      if (conversationId) void fetch(`/v1/conversations/${conversationId}/stop`, { method: "POST" });
+    },
+  };
+}
+
 export function App() {
   const { t } = useLanguage();
   const [authState, setAuthState] = useState<AuthState>("checking");
@@ -148,7 +380,8 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   const [paneRuntime, setPaneRuntime] = useState<Record<string, PaneRuntimeState>>({});
   const [splitMenu, setSplitMenu] = useState<SplitMenuState>();
   const [workspaceError, setWorkspaceError] = useState<string>();
-  const [aiOpen, setAiOpen] = useState(true);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [quickAiPaneId, setQuickAiPaneId] = useState<string>();
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcut, setShortcut] = useState(
@@ -220,7 +453,21 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       if (event.isComposing) return;
       if (matchesShortcut(event, shortcut)) {
         event.preventDefault();
-        setAiOpen((open) => !open);
+        const tab = tabs.find((item) => item.id === activeId);
+        const pane = tab
+          ? findPane(tab.layout, tab.activePaneId) ?? flattenPanes(tab.layout)[0]
+          : undefined;
+        if (pane && quickAiPaneId === pane.id) {
+          setQuickAiPaneId(undefined);
+          window.dispatchEvent(new Event("stackbridge:terminal-focus"));
+        } else if (pane) {
+          setQuickAiPaneId(pane.id);
+        }
+        return;
+      }
+      if (event.key === "Escape" && quickAiPaneId) {
+        setQuickAiPaneId(undefined);
+        window.dispatchEvent(new Event("stackbridge:terminal-focus"));
         return;
       }
       if (event.key === "Escape" && splitMenu) {
@@ -234,7 +481,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [aiOpen, shortcut, splitMenu]);
+  }, [activeId, aiOpen, quickAiPaneId, shortcut, splitMenu, tabs]);
 
   useEffect(() => {
     if (!splitMenu) return;
@@ -280,6 +527,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     if (id === activeId) return;
     setWorkspaceError(undefined);
     setSplitMenu(undefined);
+    setQuickAiPaneId(undefined);
     setActiveId(id);
   }, [activeId]);
 
@@ -289,6 +537,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       : tab);
     if (next.some((tab, index) => tab !== tabs[index])) persistTabs(next);
     if (activeId !== tabId) setActiveId(tabId);
+    setQuickAiPaneId((current) => current && current !== paneId ? undefined : current);
     setWorkspaceError(undefined);
   }, [activeId, persistTabs, tabs]);
 
@@ -320,6 +569,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       delete updated[paneId];
       return updated;
     });
+    setQuickAiPaneId((current) => current === paneId ? undefined : current);
     if (!layout && activeId === tabId) {
       setActiveId(next[Math.min(Math.max(tabIndex, 0), next.length - 1)]?.id ?? "");
     }
@@ -345,6 +595,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       for (const paneId of paneIds) delete updated[paneId];
       return updated;
     });
+    setQuickAiPaneId((current) => current && paneIds.includes(current) ? undefined : current);
     if (activeId === tabId) {
       setActiveId(next[Math.min(Math.max(index, 0), next.length - 1)]?.id ?? "");
     }
@@ -384,6 +635,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   const activePane = activeTab
     ? findPane(activeTab.layout, activeTab.activePaneId) ?? flattenPanes(activeTab.layout)[0]
     : undefined;
+  const assistant = useAssistantController(activePane?.id ?? "");
   const activeRuntime = activePane
     ? paneRuntime[activePane.id] ?? connectingRuntime(t("正在附着终端"))
     : connectingRuntime(t("正在创建终端"));
@@ -405,6 +657,19 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     : splitRequestKind === "ssh"
       ? t("同一 SSH 目标 · 重新核验")
       : t("新 PowerShell");
+  const splitCommandId = splitMenu
+    ? paneRuntime[splitMenu.paneId]?.context?.recentCommandIds.at(-1)
+    : undefined;
+
+  const askAboutCommand = useCallback((paneId: string, prompt: string, commandId?: string) => {
+    setSplitMenu(undefined);
+    setQuickAiPaneId(paneId);
+    if (assistant.account?.authenticated) {
+      void assistant.send(prompt, commandId ? [commandId] : undefined, paneId);
+    } else {
+      assistant.setMessage(prompt, paneId);
+    }
+  }, [assistant]);
 
   const renderLayout = (layout: PaneLayout, tab: TerminalTab): ReactNode => {
     if (layout.type === "split") {
@@ -437,7 +702,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
             tabId: tab.id,
             paneId: pane.id,
             x: Math.min(event.clientX, window.innerWidth - 224),
-            y: Math.min(event.clientY, window.innerHeight - 116),
+            y: Math.min(event.clientY, window.innerHeight - 246),
           });
         }}
       >
@@ -472,6 +737,21 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
           onState={handleTerminalState}
           onUnavailable={() => void closePane(tab.id, pane.id)}
         />
+        {quickAiPaneId === pane.id ? (
+          <InlineAssistant
+            assistant={assistant}
+            context={paneContext}
+            shortcut={shortcut}
+            onClose={() => {
+              setQuickAiPaneId(undefined);
+              window.dispatchEvent(new Event("stackbridge:terminal-focus"));
+            }}
+            onOpenHistory={() => {
+              setQuickAiPaneId(undefined);
+              setAiOpen(true);
+            }}
+          />
+        ) : null}
       </section>
     );
   };
@@ -538,7 +818,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
       {aiOpen && activePane ? (
         <AssistantPanel
-          terminalId={activePane.id}
+          assistant={assistant}
           context={context}
           shortcut={shortcut}
           onClose={() => {
@@ -552,10 +832,35 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
         <div
           className="terminal-context-menu"
           role="menu"
-          aria-label={t("终端分栏")}
+          aria-label={t("终端操作")}
           style={{ left: splitMenu.x, top: splitMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
+          <button
+            role="menuitem"
+            aria-label={t("解释最近输出")}
+            onClick={() => askAboutCommand(
+              splitMenu.paneId,
+              t("解释最近一条命令的输出，并告诉我是否正常。"),
+              splitCommandId,
+            )}
+          >
+            <span className="ai-menu-icon" aria-hidden="true">✦</span>
+            <span><strong>{t("解释最近输出")}</strong><small>{t("附带最近命令和输出")}</small></span>
+          </button>
+          <button
+            role="menuitem"
+            aria-label={t("修复最近命令")}
+            onClick={() => askAboutCommand(
+              splitMenu.paneId,
+              t("分析最近一条命令为什么失败，并给出需要确认后执行的修复命令。"),
+              splitCommandId,
+            )}
+          >
+            <span className="ai-menu-icon" aria-hidden="true">↗</span>
+            <span><strong>{t("修复最近命令")}</strong><small>{t("生成固定到当前环境的建议")}</small></span>
+          </button>
+          <div className="terminal-menu-divider" />
           <button
             role="menuitem"
             aria-label={t("横向分栏（左右排列）")}
@@ -598,6 +903,112 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
         />
       ) : null}
     </main>
+  );
+}
+
+function InlineAssistant({
+  assistant,
+  context,
+  shortcut,
+  onClose,
+  onOpenHistory,
+}: {
+  assistant: AssistantController;
+  context: TerminalContext | undefined;
+  shortcut: string;
+  onClose(): void;
+  onOpenHistory(): void;
+}) {
+  const { locale, t } = useLanguage();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => inputRef.current?.focus(), []);
+  const environment = context
+    ? context.environmentStack.map((item) => localizedEnvironmentLabel(item.label, item.kind, locale)).join(" → ")
+    : t("正在识别环境");
+  const latestAssistantMessage = assistant.inlineAssistantMessage;
+  const proposals = latestAssistantMessage?.proposalIds?.flatMap((id) => {
+    const proposal = assistant.conversation?.proposals.find((item) => item.id === id);
+    return proposal ? [proposal] : [];
+  }) ?? [];
+  const turnPendingHere = assistant.sending
+    && assistant.pendingTerminalId === context?.terminalSessionId;
+  if (!assistant.account) {
+    return (
+      <section className="inline-assistant compact" aria-label={t("快速询问 AI")}>
+        <header><div><span className="inline-ai-mark">✦</span><strong>{t("正在连接 Codex…")}</strong></div><button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button></header>
+      </section>
+    );
+  }
+  if (!assistant.account.authenticated) {
+    return (
+      <section className="inline-assistant compact" aria-label={t("快速询问 AI")}>
+        <header>
+          <div><span className="inline-ai-mark">✦</span><strong>{t("询问当前终端")}</strong><small>{t("需要先使用 ChatGPT 登录")}</small></div>
+          <div><button type="button" className="primary-button compact" onClick={() => void assistant.login()}>{t("使用 ChatGPT 登录")}</button><button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button></div>
+        </header>
+      </section>
+    );
+  }
+  return (
+    <section className="inline-assistant" aria-label={t("快速询问 AI")}>
+      <header>
+        <div><span className="inline-ai-mark">✦</span><strong>{t("询问当前终端")}</strong><small>{environment}</small></div>
+        <div>
+          <button type="button" className="text-button" onClick={onOpenHistory}>{t("历史与详情")}</button>
+          <button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button>
+        </div>
+      </header>
+      <div className="inline-context-chips" aria-label={t("检查上下文")}>
+        <span title={context?.cwd}>{context?.cwd || "—"}</span>
+        <span>{context?.shell || "—"}</span>
+        <span>{locale === "zh-CN"
+          ? `最近 ${Math.min(3, context?.recentCommandIds.length ?? 0)} 条输出`
+          : `${Math.min(3, context?.recentCommandIds.length ?? 0)} recent outputs`}</span>
+      </div>
+      {latestAssistantMessage ? (
+        <div className="inline-ai-response">
+          <div className="message-role">AI</div>
+          <div className="message-body">{latestAssistantMessage.content}</div>
+          {proposals.map((proposal) => (
+            <ProposalCard
+              key={proposal.id}
+              proposal={proposal}
+              onDecision={(item, decision) => void assistant.decide(item, decision)}
+              onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])}
+            />
+          ))}
+        </div>
+      ) : null}
+      {assistant.pendingMessage && assistant.pendingTerminalId === context?.terminalSessionId
+        ? <div className="inline-ai-pending">{assistant.pendingMessage}</div>
+        : null}
+      {turnPendingHere
+        ? <div className="thinking"><span /><span /><span /> {t("Codex 正在分析当前终端…")}</div>
+        : null}
+      {assistant.error && assistant.errorTerminalId === context?.terminalSessionId
+        ? <div className="panel-error">{assistant.error}</div>
+        : null}
+      <textarea
+        ref={inputRef}
+        value={assistant.message}
+        onChange={(event) => assistant.setMessage(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            void assistant.send();
+          }
+        }}
+        placeholder={t("问当前命令、输出或下一步…")}
+        disabled={turnPendingHere}
+        rows={2}
+      />
+      <footer>
+        <span>{shortcut} · {t("Esc 返回终端")}</span>
+        {turnPendingHere
+          ? <button type="button" className="danger-button" onClick={assistant.stop}>{t("停止")}</button>
+          : <button type="button" className="send-button" disabled={!assistant.message.trim() || assistant.sending} onClick={() => void assistant.send()}>↑</button>}
+      </footer>
+    </section>
   );
 }
 
@@ -780,140 +1191,34 @@ function TerminalPane({
 }
 
 function AssistantPanel({
-  terminalId,
+  assistant,
   context,
   shortcut,
   onClose,
 }: {
-  terminalId: string;
+  assistant: AssistantController;
   context: TerminalContext | undefined;
   shortcut: string;
   onClose(): void;
 }) {
   const { locale, t } = useLanguage();
-  const [account, setAccount] = useState<AiAccountStatus>();
-  const [models, setModels] = useState<CodexModel[]>([]);
-  const [model, setModel] = useState("gpt-5.6-luna");
-  const [conversation, setConversation] = useState<ConversationSnapshot>();
-  const [conversations, setConversations] = useState<ConversationSnapshot[]>([]);
-  const [message, setMessage] = useState("");
-  const [pendingMessage, setPendingMessage] = useState<string>();
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string>();
-  const [loginId, setLoginId] = useState<string>();
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  const refreshAccount = useCallback(async () => {
-    const response = await fetch("/v1/ai/account/status", { cache: "no-store" });
-    setAccount(await response.json() as AiAccountStatus);
-  }, []);
-  const refreshConversations = useCallback(async () => {
-    const response = await fetch("/v1/conversations", { cache: "no-store" });
-    if (response.ok) setConversations(((await response.json()) as { data: ConversationSnapshot[] }).data);
-  }, []);
-
-  useEffect(() => {
-    void refreshAccount();
-    void refreshConversations();
-    void fetch("/v1/ai/models", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) return;
-      const data = ((await response.json()) as { data: CodexModel[] }).data;
-      setModels(data);
-      const preferred = data.find((item) => item.model === "gpt-5.6-luna")
-        ?? data.find((item) => item.isDefault)
-        ?? data[0];
-      if (preferred) setModel(preferred.model);
-    });
-  }, [refreshAccount, refreshConversations]);
+  const {
+    account,
+    models,
+    model,
+    conversation,
+    conversations,
+    message,
+    pendingMessage,
+    sending,
+    error,
+    loginId,
+  } = assistant;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [conversation, pendingMessage]);
-
-  async function login() {
-    setError(undefined);
-    try {
-      const result = await api<{ loginId: string; authUrl: string }>("/v1/ai/account/login", { method: "POST" }, t);
-      setLoginId(result.loginId);
-      window.open(result.authUrl, "_blank", "noopener,noreferrer");
-      const interval = window.setInterval(() => void refreshAccount(), 1_500);
-      window.setTimeout(() => clearInterval(interval), 120_000);
-    } catch (reason) {
-      setError(errorMessage(reason, t));
-    }
-  }
-
-  async function cancelLogin() {
-    if (!loginId) return;
-    setError(undefined);
-    try {
-      await api("/v1/ai/account/login/cancel", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ loginId }),
-      }, t);
-      setLoginId(undefined);
-    } catch (reason) {
-      setError(errorMessage(reason, t));
-    }
-  }
-
-  async function createConversation(): Promise<ConversationSnapshot> {
-    const created = await api<ConversationSnapshot>("/v1/conversations", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminalId, model }),
-    }, t);
-    const parsed = conversationSnapshotSchema.parse(created);
-    setConversation(parsed);
-    await refreshConversations();
-    return parsed;
-  }
-
-  async function send(text = message, commandIds?: string[]) {
-    if (!text.trim() || sending) return;
-    setSending(true);
-    setError(undefined);
-    setPendingMessage(text.trim());
-    setMessage("");
-    try {
-      const current = conversation ?? await createConversation();
-      const updated = await api<ConversationSnapshot>(`/v1/conversations/${current.id}/turns`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminalId, message: text.trim(), ...(commandIds ? { commandIds } : {}) }),
-      }, t);
-      setConversation(conversationSnapshotSchema.parse(updated));
-      await refreshConversations();
-    } catch (reason) {
-      setError(errorMessage(reason, t));
-    } finally {
-      setSending(false);
-      setPendingMessage(undefined);
-    }
-  }
-
-  async function decide(proposal: CommandProposal, decision: "execute" | "insert" | "reject") {
-    setError(undefined);
-    try {
-      const result = await api<{ proposal: CommandProposal }>(`/v1/approvals/${proposal.id}/decision`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 2, decision }),
-      }, t);
-      setConversation((current) => current && ({
-        ...current,
-        proposals: current.proposals.map((item) => item.id === proposal.id ? result.proposal : item),
-      }));
-      if (decision === "insert") window.dispatchEvent(new Event("stackbridge:terminal-focus"));
-    } catch (reason) {
-      setError(errorMessage(reason, t));
-      if (conversation) {
-        const refreshed = await api<ConversationSnapshot>(`/v1/conversations/${conversation.id}`, undefined, t);
-        setConversation(refreshed);
-      }
-    }
-  }
 
   if (!account) return <aside className="assistant-panel loading-panel"><PanelHeader title={t("AI 助手")} subtitle={shortcut} onClose={onClose} /><CenteredStatus message={t("正在连接 Codex…")} /></aside>;
   if (!account.authenticated) {
@@ -934,9 +1239,9 @@ function AssistantPanel({
           </div>
           {loginId ? <>
             <p className="form-note">{t("授权页面已打开。完成后回到这里检查状态；若网络或地区不可用，可以取消后重试。")}</p>
-            <button className="primary-button" onClick={() => void refreshAccount()}>{t("检查登录状态")}</button>
-            <button className="ghost-button" onClick={() => void cancelLogin()}>{t("取消本次登录")}</button>
-          </> : <button className="primary-button ai-login-button" onClick={() => void login()}>{t("使用 ChatGPT 登录")} <span>↗</span></button>}
+            <button className="primary-button" onClick={() => void assistant.refreshAccount()}>{t("检查登录状态")}</button>
+            <button className="ghost-button" onClick={() => void assistant.cancelLogin()}>{t("取消本次登录")}</button>
+          </> : <button className="primary-button ai-login-button" onClick={() => void assistant.login()}>{t("使用 ChatGPT 登录")} <span>↗</span></button>}
           <p className="privacy-note">{t("登录凭据保存在 StackBridge 独立 Codex 数据目录的认证文件中。")}</p>
           {account.error ? <p className="form-error">{account.error}</p> : null}
           {error ? <p className="form-error">{error}</p> : null}
@@ -949,17 +1254,14 @@ function AssistantPanel({
     <aside className="assistant-panel">
       <PanelHeader title={t("AI 助手")} subtitle={account.accountLabel ?? shortcut} onClose={onClose} />
       <div className="assistant-tools">
-        <select value={model} onChange={(event) => setModel(event.target.value)} disabled={!!conversation}>
+        <select value={model} onChange={(event) => assistant.setModel(event.target.value)} disabled={!!conversation}>
           {(models.length ? models : [{ model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" } as CodexModel]).map((item) => (
             <option key={item.model} value={item.model}>{item.displayName}</option>
           ))}
         </select>
-        <button className="ghost-button compact" onClick={() => setConversation(undefined)}>＋ {t("新对话")}</button>
+        <button className="ghost-button compact" onClick={assistant.newConversation}>＋ {t("新对话")}</button>
         {conversations.length ? (
-          <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => {
-            const selected = conversations.find((item) => item.id === event.target.value);
-            setConversation(selected);
-          }}>
+          <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)}>
             <option value="">{t("历史对话")}</option>
             {conversations.map((item) => <option key={item.id} value={item.id}>{localizedConversationTitle(item.title, locale)}</option>)}
           </select>
@@ -983,7 +1285,7 @@ function AssistantPanel({
             <p>{t("直接问“刚才的错误是什么意思？”或“这个命令怎么写？”。")}</p>
             <div className="prompt-suggestions">
               {(["解释刚才的输出", "给我一个安全的排查命令", "当前在哪个环境？"] as const).map((item) => (
-                <button key={item} onClick={() => void send(t(item))}>{t(item)}</button>
+                <button key={item} onClick={() => void assistant.send(t(item))}>{t(item)}</button>
               ))}
             </div>
           </div>
@@ -993,7 +1295,7 @@ function AssistantPanel({
             <div className="message-body">{item.role === "timeline" ? localizedSystemMessage(item.content, locale) : item.content}</div>
             {item.proposalIds?.map((id) => {
               const proposal = conversation.proposals.find((candidate) => candidate.id === id);
-              return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={decide} onExplain={(commandId) => void send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
+              return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={(item, decision) => void assistant.decide(item, decision)} onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
             })}
           </div>
         ))}
@@ -1001,14 +1303,14 @@ function AssistantPanel({
         {sending ? <div className="thinking"><span /><span /><span /> {t("Codex 正在分析当前终端…")}</div> : null}
       </div>
       {error ? <div className="panel-error">{error}</div> : null}
-      <form className="composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
+      <form className="composer" onSubmit={(event) => { event.preventDefault(); void assistant.send(); }}>
         <textarea
           value={message}
-          onChange={(event) => setMessage(event.target.value)}
+          onChange={(event) => assistant.setMessage(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              void send();
+              void assistant.send();
             }
           }}
           placeholder={t("问当前命令、输出或下一步…")}
@@ -1018,9 +1320,7 @@ function AssistantPanel({
         <div className="composer-footer">
           <span>{t("Enter 发送 · Shift+Enter 换行")}</span>
           {sending ? (
-            <button type="button" className="danger-button" onClick={() => {
-              if (conversation) void fetch(`/v1/conversations/${conversation.id}/stop`, { method: "POST" });
-            }}>{t("停止")}</button>
+            <button type="button" className="danger-button" onClick={assistant.stop}>{t("停止")}</button>
           ) : <button className="send-button" disabled={!message.trim()}>{t("发送 ↑")}</button>}
         </div>
       </form>
@@ -1030,7 +1330,7 @@ function AssistantPanel({
 
 function ProposalCard({ proposal, onDecision, onExplain }: {
   proposal: CommandProposal;
-  onDecision(proposal: CommandProposal, decision: "execute" | "insert" | "reject"): void;
+  onDecision(proposal: CommandProposal, decision: ApprovalDecision): void;
   onExplain(commandBlockId: string): void;
 }) {
   const { locale, t } = useLanguage();
@@ -1184,7 +1484,7 @@ function SettingsDialog({ shortcut, locale, onLocaleChange, onSave, onClose }: {
         </select>
       </Field>
       {languageError ? <p className="form-error">{languageError}</p> : null}
-      <Field label={t("AI 面板快捷键")}><input value={value} onChange={(event) => setValue(event.target.value)} /></Field>
+      <Field label={t("快速询问快捷键")}><input value={value} onChange={(event) => setValue(event.target.value)} /></Field>
       <p className="form-note">{t("支持 Ctrl、Shift、Alt 与单个按键，例如 Ctrl+Shift+Space。中文输入法组合期间不会拦截。")}</p>
       <button className="primary-button" onClick={() => onSave(value)}>{t("保存")}</button>
     </Modal>

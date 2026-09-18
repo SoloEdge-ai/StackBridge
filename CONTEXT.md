@@ -30,6 +30,10 @@ The user-visible, continuous AI conversation. It maps to one Codex thread and ma
 
 One live terminal pane, its PTY, ordered output replay, write lease, Shell state, and environment stack. A workspace tab may arrange several TerminalSessions in horizontal or vertical splits. A TerminalSession stays alive when the browser detaches and is the only place where approved same-Shell commands may be submitted.
 
+### Quick Ask
+
+A presentation-only AI composer attached to one TerminalSession. Its unsent draft belongs to that terminal pane, while a submitted turn still belongs to the continuous ConversationSession and freezes a separate AgentSession. Quick Ask never writes AI text into the PTY and is not target or authorization evidence.
+
 ### EnvironmentFrame
 
 One layer in a TerminalSession connection stack, such as local Windows, an SSH host, or a Docker container. It records its parent and verified RuntimeBinding when available. A container display name is not identity; a rebuilt container creates a different binding.
