@@ -261,6 +261,18 @@ test("asks the real Codex account from the active terminal pane", async ({ page 
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
 });
 
+test("opens Quick Ask when the desktop shell forwards its shortcut", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".terminal-pane-context")).toContainText("Local Windows");
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("stackbridge:toggle-quick-ask"));
+  });
+
+  await expect(page.locator(".terminal-pane-shell.active .inline-assistant")).toBeVisible();
+  await expect(page.locator(".terminal-pane-shell.active .inline-assistant textarea")).toBeFocused();
+});
+
 test("offers AI actions beside the latest terminal output", async ({ page }) => {
   await page.goto("/");
   const pane = page.getByRole("group", { name: "Terminal pane" });

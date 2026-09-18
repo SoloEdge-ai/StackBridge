@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     main: "src/main.ts",
     core: "../core/src/main.ts",
+    preload: "src/preload.ts",
   },
   format: ["esm"],
   platform: "node",

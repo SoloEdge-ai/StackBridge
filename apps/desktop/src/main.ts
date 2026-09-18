@@ -1,15 +1,28 @@
 import { createServer } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, Menu, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 
 import { requireCodexCli, resolveCodexCliCandidates } from "./codex-cli.js";
+import { matchesDesktopShortcut } from "./desktop-shortcuts.js";
+
+const toggleQuickAskChannel = "stackbridge:toggle-quick-ask";
+const setQuickAskShortcutChannel = "stackbridge:set-quick-ask-shortcut";
+const maximumShortcutLength = 64;
 
 app.setName("StackBridge");
 app.setPath("userData", join(app.getPath("appData"), "StackBridge"));
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 let mainWindow: BrowserWindow | undefined;
+let quickAskShortcut = "Ctrl+Shift+Space";
+
+ipcMain.on(setQuickAskShortcutChannel, (event, value: unknown) => {
+  if (event.sender !== mainWindow?.webContents) return;
+  if (typeof value !== "string" || value.length === 0 || value.length > maximumShortcutLength) return;
+  quickAskShortcut = value;
+});
 
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -47,6 +60,7 @@ async function startDesktop(): Promise<void> {
 
   const coreEntry = new URL("./core.js", import.meta.url).href;
   await import(coreEntry);
+  const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.js");
 
   mainWindow = new BrowserWindow({
     title: "StackBridge",
@@ -66,9 +80,16 @@ async function startDesktop(): Promise<void> {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: preloadPath,
       sandbox: true,
       webSecurity: true,
     },
+  });
+
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (!matchesDesktopShortcut(input, quickAskShortcut)) return;
+    event.preventDefault();
+    mainWindow?.webContents.send(toggleQuickAskChannel);
   });
 
   mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {

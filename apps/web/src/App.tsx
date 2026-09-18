@@ -457,21 +457,36 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       });
   }, [addTerminal, t, tabs.length]);
 
+  const toggleQuickAsk = useCallback(() => {
+    const tab = tabs.find((item) => item.id === activeId);
+    const pane = tab
+      ? findPane(tab.layout, tab.activePaneId) ?? flattenPanes(tab.layout)[0]
+      : undefined;
+    if (pane && quickAiPaneId === pane.id) {
+      setQuickAiPaneId(undefined);
+      window.dispatchEvent(new Event("stackbridge:terminal-focus"));
+    } else if (pane) {
+      setQuickAiPaneId(pane.id);
+    }
+  }, [activeId, quickAiPaneId, tabs]);
+
+  useEffect(() => {
+    const handleDesktopToggle = () => toggleQuickAsk();
+    window.addEventListener("stackbridge:toggle-quick-ask", handleDesktopToggle);
+    const removeDesktopListener = window.stackBridgeDesktop?.onToggleQuickAsk(handleDesktopToggle);
+    window.stackBridgeDesktop?.setQuickAskShortcut(shortcut);
+    return () => {
+      window.removeEventListener("stackbridge:toggle-quick-ask", handleDesktopToggle);
+      removeDesktopListener?.();
+    };
+  }, [shortcut, toggleQuickAsk]);
+
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (matchesShortcut(event, shortcut)) {
         event.preventDefault();
-        const tab = tabs.find((item) => item.id === activeId);
-        const pane = tab
-          ? findPane(tab.layout, tab.activePaneId) ?? flattenPanes(tab.layout)[0]
-          : undefined;
-        if (pane && quickAiPaneId === pane.id) {
-          setQuickAiPaneId(undefined);
-          window.dispatchEvent(new Event("stackbridge:terminal-focus"));
-        } else if (pane) {
-          setQuickAiPaneId(pane.id);
-        }
+        toggleQuickAsk();
         return;
       }
       if (event.key === "Escape" && quickAiPaneId) {
@@ -490,7 +505,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [activeId, aiOpen, quickAiPaneId, shortcut, splitMenu, tabs]);
+  }, [aiOpen, quickAiPaneId, shortcut, splitMenu, toggleQuickAsk]);
 
   useEffect(() => {
     if (!splitMenu) return;
@@ -1032,7 +1047,9 @@ function InlineAssistant({
   const { locale, t } = useLanguage();
   const rootRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => inputRef.current?.focus(), []);
+  useEffect(() => {
+    if (assistant.account?.authenticated) inputRef.current?.focus();
+  }, [assistant.account?.authenticated]);
   const environment = context
     ? context.environmentStack.map((item) => localizedEnvironmentLabel(item.label, item.kind, locale)).join(" → ")
     : t("正在识别环境");
