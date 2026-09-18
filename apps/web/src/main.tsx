@@ -4,6 +4,10 @@ import "@xterm/xterm/css/xterm.css";
 import { App } from "./App.js";
 import "./styles.css";
 
+if (new URLSearchParams(location.search).get("desktop") === "1") {
+  document.documentElement.classList.add("desktop-shell");
+}
+
 const root = document.getElementById("root");
 if (root === null) throw new Error("Missing #root element");
 

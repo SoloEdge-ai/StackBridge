@@ -1,4 +1,7 @@
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
@@ -21,9 +24,47 @@ const testManagerOptions = {
 
 describe("Core browser boundary", () => {
   let core: CoreServer | undefined;
+  let staticDirectory: string | undefined;
 
   afterEach(async () => {
     await core?.close();
+    if (staticDirectory !== undefined) {
+      await rm(staticDirectory, { recursive: true, force: true });
+      staticDirectory = undefined;
+    }
+  });
+
+  it("serves the production workbench and assets without authenticating the initial page", async () => {
+    staticDirectory = await mkdtemp(join(tmpdir(), "stackbridge-web-"));
+    await mkdir(join(staticDirectory, "assets"));
+    await writeFile(
+      join(staticDirectory, "index.html"),
+      '<!doctype html><main id="root">StackBridge desktop</main>',
+    );
+    await writeFile(join(staticDirectory, "assets", "app.js"), "window.desktopReady = true;");
+
+    core = createCoreServer({
+      allowedOrigins: [origin],
+      terminalSessions: new TerminalSessionManager(() => new ControlledPty(), testManagerOptions),
+      staticDirectory,
+    });
+    const baseUrl = await listen(core);
+
+    const page = await fetch(`${baseUrl}/`);
+    const asset = await fetch(`${baseUrl}/assets/app.js`);
+    const route = await fetch(`${baseUrl}/terminal/workspace`);
+    const unknownApi = await fetch(`${baseUrl}/v1/not-a-real-route`);
+
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(page.headers.get("content-security-policy")).toContain("default-src 'self'");
+    expect(await page.text()).toContain("StackBridge desktop");
+    expect(asset.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(await asset.text()).toBe("window.desktopReady = true;");
+    expect(route.status).toBe(200);
+    expect(await route.text()).toContain("StackBridge desktop");
+    expect(unknownApi.status).toBe(401);
+    expect(unknownApi.headers.get("content-type")).toContain("application/json");
   });
 
   it("creates a browser session only for an allowed local origin", async () => {

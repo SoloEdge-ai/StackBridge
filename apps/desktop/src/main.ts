@@ -1,0 +1,119 @@
+import { createServer } from "node:net";
+import { join, resolve } from "node:path";
+
+import { app, BrowserWindow, dialog, Menu, shell } from "electron";
+
+app.setName("StackBridge");
+app.setPath("userData", join(app.getPath("appData"), "StackBridge"));
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+let mainWindow: BrowserWindow | undefined;
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow === undefined) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  app.on("window-all-closed", () => app.quit());
+  void startDesktop().catch((error: unknown) => {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    console.error(message);
+    dialog.showErrorBox("StackBridge 启动失败", message);
+    app.quit();
+  });
+}
+
+async function startDesktop(): Promise<void> {
+  await app.whenReady();
+  app.setAppUserModelId("ai.soloedge.stackbridge");
+  Menu.setApplicationMenu(null);
+
+  const port = await availableLoopbackPort();
+  const workbenchUrl = `http://127.0.0.1:${port}`;
+  configureCore(port, workbenchUrl);
+
+  const coreEntry = new URL("./core.js", import.meta.url).href;
+  await import(coreEntry);
+
+  mainWindow = new BrowserWindow({
+    title: "StackBridge",
+    width: 1_440,
+    height: 900,
+    minWidth: 980,
+    minHeight: 640,
+    show: false,
+    backgroundColor: "#09090d",
+    autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#111116",
+      symbolColor: "#9a9aa6",
+      height: 38,
+    },
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith("https://") || url.startsWith("http://")) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url.startsWith(`${workbenchUrl}/`) || url === workbenchUrl) return;
+    event.preventDefault();
+    if (url.startsWith("https://") || url.startsWith("http://")) void shell.openExternal(url);
+  });
+  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  mainWindow.on("closed", () => {
+    mainWindow = undefined;
+  });
+
+  await mainWindow.loadURL(`${workbenchUrl}/?desktop=1`);
+}
+
+function configureCore(port: number, workbenchUrl: string): void {
+  const resourcesRoot = app.isPackaged ? process.resourcesPath : resolve(app.getAppPath(), "../..");
+  process.env.STACKBRIDGE_CORE_PORT = String(port);
+  process.env.STACKBRIDGE_ALLOWED_ORIGINS = workbenchUrl;
+  process.env.STACKBRIDGE_TERMINAL_CWD = app.getPath("home");
+  process.env.STACKBRIDGE_WEB_DIST_DIR = app.isPackaged
+    ? join(resourcesRoot, "web")
+    : join(resourcesRoot, "apps", "web", "dist");
+  process.env.STACKBRIDGE_RUNTIME_MANIFEST = join(resourcesRoot, "runtime", "bin", "manifest.json");
+  if (app.isPackaged) {
+    const codexDirectory = join(resourcesRoot, "codex");
+    process.env.STACKBRIDGE_CODEX_BIN = join(codexDirectory, "codex.exe");
+    process.env.PATH = [join(codexDirectory, "path"), process.env.PATH ?? ""].filter(Boolean).join(";");
+  }
+}
+
+async function availableLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolveReady, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolveReady());
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") {
+    server.close();
+    throw new Error("无法分配本地服务端口");
+  }
+  await new Promise<void>((resolveClosed, reject) => {
+    server.close((error) => error === undefined ? resolveClosed() : reject(error));
+  });
+  return address.port;
+}

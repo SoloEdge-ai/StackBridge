@@ -10,6 +10,7 @@ const screenshotDirectory = resolve(here, "../../../artifacts/playwright");
 test.beforeAll(() => mkdirSync(screenshotDirectory, { recursive: true }));
 
 test.afterEach(async ({ page }) => {
+  if (!page.url().startsWith("http://127.0.0.1:5173")) return;
   await page.evaluate(async () => {
     const stored = sessionStorage.getItem("stackbridge.terminalTabs.v2");
     const tabs = stored === null ? [] : JSON.parse(stored) as Array<{ id?: unknown }>;
@@ -25,8 +26,12 @@ test.afterEach(async ({ page }) => {
 test("opens without a launch token and drives the real terminal workbench", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByText("StackBridge", { exact: true })).toBeVisible();
+  await expect(page.locator(".rail-brand")).toBeVisible();
+  await expect(page.locator(".workspace-label")).toHaveCount(0);
   await expect(page.getByText("启动令牌")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "新建连接" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "AI 助手" })).toHaveCount(1);
+  await expect(page.locator(".top-actions")).toHaveCount(0);
   await expect(page.locator(".terminal-host .xterm")).toBeVisible();
   await expect(page.locator(".assistant-panel")).toBeVisible();
 

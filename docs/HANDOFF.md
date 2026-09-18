@@ -16,6 +16,7 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 - AI 只能返回回答与命令建议。Core 拥有不可变建议和持久化 operation；执行需要逐条确认、五分钟内有效、原目标未变、环境已核验、Shell 仍存活且空闲、输入为空，并且批准页面持有写入租约。
 - 经确认命令在原 Shell 执行，所以 `cd`、`export` 和虚拟环境状态继续有效；重复确认、刷新和重试不会二次提交。
 - SQLite 保存对话、冻结建议和命令元数据，终端输出分块保存；默认七天/1 GiB 清理。
+- Windows x64 便携版将生产 Web、Core、ConPTY 依赖、`codex-cli 0.128.0` 和 Linux 远程 runtime 封装为单文件；Electron 仅管理窗口、随机回环端口和进程生命周期。
 
 ## 实机状态
 
@@ -26,6 +27,18 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 - 当前 OpenAI OAuth 页面返回 `unsupported_country_region_territory`。登录入口、状态查询和取消已接通，但真实 ChatGPT 回合必须在受支持网络下最终验收。
 
 ## 启动与验证
+
+直接使用本地便携产物：
+
+```text
+release/StackBridge-Portable-x64.exe
+```
+
+重新生成产物：
+
+```powershell
+pnpm desktop:portable
+```
 
 ```powershell
 pnpm install
@@ -55,13 +68,13 @@ Docker: context=default, container=stackbridge-m0b1-ubuntu22,
 - Shell 随机标记不是针对同 UID 恶意进程的强认证通道；受限命名管道/Unix socket 仍待后续安全加固，runtime binding 不依赖该标记授权。
 - 没有完成密码/MFA askpass、tmux/screen、提权 Shell、全屏 TUI、中文输入法组合输入和长时间高吞吐矩阵。
 - Codex 动态客户端工具与统一 `/v1/events` 流尚未实现；当前由 Core 预组装上下文、HTTP 返回 AI 回合并轮询 operation。
-- 没有 Electron、生产同源服务、安装包、文件自动修改、外部插件、子代理或无人值守循环。
+- Windows 便携版仅完成 x64 当前宿主验证，尚无代码签名、自动更新、标准安装包和干净 Windows 矩阵；文件自动修改、外部插件、子代理或无人值守循环仍未提供。
 
 ## 建议下一步
 
 1. 在受支持网络完成真实 ChatGPT 登录、真实回答、建议卡、确认执行和后续解释的最终验收。
 2. 将远端 PTY 下沉到 runtime 协议 3 supervisor，补齐短断线与 Core 重启恢复。
 3. 扩展 Playwright 到真实 ChatGPT 回合，并补中文输入法/全屏 TUI/吞吐矩阵。
-4. 之后再进入生产同源服务和 Electron 安装包，不扩大本次终端助手的工具权限。
+4. 在便携版稳定后补应用图标、代码签名、自动更新与标准安装包，不扩大本次终端助手的工具权限。
 
-完整证据见 [AI 终端验证记录](AI-TERMINAL-VERIFICATION.md)。
+完整证据见 [AI 终端验证记录](AI-TERMINAL-VERIFICATION.md)和 [Windows 便携版验证记录](WINDOWS-PORTABLE-VERIFICATION.md)。

@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 
 import {
   commandProposalSchema,
@@ -10,6 +11,8 @@ import {
   type ConversationSnapshot,
   type OperationSnapshot,
 } from "@stackbridge/protocol";
+
+const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 
 import type { ApprovedCommandRequest, CommandBlock } from "./terminal-session.js";
 
@@ -37,7 +40,7 @@ export interface ConversationPersistence {
 }
 
 export class WorkspaceStore implements ConversationPersistence {
-  private readonly database: DatabaseSync;
+  private readonly database: DatabaseSyncType;
   private readonly outputDirectory: string;
 
   constructor(

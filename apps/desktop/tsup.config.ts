@@ -1,11 +1,15 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/main.ts"],
+  entry: {
+    main: "src/main.ts",
+    core: "../core/src/main.ts",
+  },
   format: ["esm"],
   platform: "node",
+  target: "node22",
   sourcemap: true,
   clean: true,
-  external: ["node-pty", "node:sqlite"],
+  external: ["electron", "node-pty", "node:sqlite", "ws", "zod"],
   noExternal: ["@stackbridge/protocol"],
 });

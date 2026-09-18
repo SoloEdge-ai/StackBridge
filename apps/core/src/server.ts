@@ -1,5 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFile, stat } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
+import { extname, isAbsolute, relative, resolve } from "node:path";
 
 import {
   approvalDecisionRequestSchema,
@@ -40,6 +42,7 @@ const maximumBodyBytes = 131_072;
 export interface CoreServerOptions {
   allowedOrigins: string[];
   terminalSessions: TerminalSessionManager;
+  staticDirectory?: string;
   browserSessions?: BrowserSessionStore;
   remoteSessions?: RemoteSessionService;
   remotePtyLauncher?: (
@@ -133,6 +136,13 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
       response.end();
       return;
     }
+
+    if (
+      options.staticDirectory !== undefined &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      !url.pathname.startsWith("/v1/") &&
+      await serveStaticWorkbench(request, response, url, options.staticDirectory)
+    ) return;
 
     if (!isAuthenticated(request, browserSessions)) {
       writeJson(response, 401, { error: "authentication_required" });
@@ -588,6 +598,100 @@ async function handleWorkspaceRequest(
   }
 
   return false;
+}
+
+async function serveStaticWorkbench(
+  request: IncomingMessage,
+  response: ServerResponse,
+  url: URL,
+  staticDirectory: string,
+): Promise<boolean> {
+  const root = resolve(staticDirectory);
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    writeText(response, 400, "Invalid URL path");
+    return true;
+  }
+
+  const relativePath = pathname === "/" ? "index.html" : pathname.slice(1);
+  const requestedPath = resolve(root, relativePath);
+  const fromRoot = relative(root, requestedPath);
+  if (fromRoot.startsWith("..") || isAbsolute(fromRoot) || pathname.includes("\0")) {
+    writeText(response, 404, "Not found");
+    return true;
+  }
+
+  let filePath = requestedPath;
+  if (!await isRegularFile(filePath)) {
+    if (extname(pathname) !== "") {
+      writeText(response, 404, "Not found");
+      return true;
+    }
+    filePath = resolve(root, "index.html");
+    if (!await isRegularFile(filePath)) {
+      writeText(response, 404, "Not found");
+      return true;
+    }
+  }
+
+  const body = await readFile(filePath);
+  response.writeHead(200, {
+    "content-type": contentType(filePath),
+    "content-length": String(body.byteLength),
+    "cache-control": filePath === resolve(root, "index.html")
+      ? "no-cache"
+      : "public, max-age=31536000, immutable",
+    "content-security-policy": [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self' ws://127.0.0.1:* ws://localhost:*",
+      "img-src 'self' data:",
+      "font-src 'self' data:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+    ].join("; "),
+    "x-content-type-options": "nosniff",
+  });
+  response.end(request.method === "HEAD" ? undefined : body);
+  return true;
+}
+
+async function isRegularFile(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function contentType(path: string): string {
+  const types: Record<string, string> = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".ico": "image/x-icon",
+    ".js": "text/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".map": "application/json; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+  };
+  return types[extname(path).toLowerCase()] ?? "application/octet-stream";
+}
+
+function writeText(response: ServerResponse, status: number, body: string): void {
+  if (response.headersSent) return;
+  response.writeHead(status, {
+    "content-type": "text/plain; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  response.end(body);
 }
 
 function validateBrowserRequest(

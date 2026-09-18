@@ -1,0 +1,97 @@
+{
+  "name": "@stackbridge/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "author": "SoloEdge-ai",
+  "type": "module",
+  "description": "StackBridge Windows desktop shell",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsup --config tsup.config.ts",
+    "start": "pnpm build && electron .",
+    "package:portable": "electron-builder --win portable --x64 --publish never",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "node-pty": "1.1.0",
+    "ws": "8.21.3",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.128.0-win32-x64",
+    "@types/node": "22.20.3",
+    "electron": "44.4.1",
+    "electron-builder": "26.15.3",
+    "tsup": "8.5.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  },
+  "build": {
+    "appId": "ai.soloedge.stackbridge",
+    "productName": "StackBridge",
+    "asar": true,
+    "npmRebuild": false,
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "directories": {
+      "output": "../../release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../../runtime/bin",
+        "to": "runtime/bin",
+        "filter": [
+          "manifest.json",
+          "linux-amd64/**/*",
+          "linux-arm64/**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/codex",
+        "to": "codex",
+        "filter": [
+          "*.exe"
+        ]
+      },
+      {
+        "from": "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/path",
+        "to": "codex/path",
+        "filter": [
+          "rg.exe"
+        ]
+      },
+      {
+        "from": "node_modules/@openai/codex-win32-x64/package.json",
+        "to": "codex/package.json"
+      }
+    ],
+    "win": {
+      "artifactName": "StackBridge-Portable-${arch}.${ext}",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "StackBridge-Portable-${arch}.${ext}",
+      "requestExecutionLevel": "user"
+    }
+  }
+}

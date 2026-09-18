@@ -239,10 +239,6 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
       <section className="terminal-workspace">
         <header className="topbar">
-          <div className="workspace-label">
-            <span>Workspace</span>
-            <strong>StackBridge</strong>
-          </div>
           <div className="tab-strip">
             {tabs.map((tab) => (
               <div
@@ -263,10 +259,6 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
               </div>
             ))}
             <button className="new-tab-button" title="新建本地终端" onClick={() => void addTerminal({ cols: 120, rows: 32, kind: "local" }, "PowerShell", "local")}>＋</button>
-          </div>
-          <div className="top-actions">
-            <button className="connect-button" onClick={() => setConnectionOpen(true)}><AppIcon name="connection" /> 连接</button>
-            <button className={`ai-toggle ${aiOpen ? "active" : ""}`} onClick={() => setAiOpen((value) => !value)}><AppIcon name="spark" /> AI</button>
           </div>
         </header>
 

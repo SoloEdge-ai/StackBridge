@@ -103,9 +103,17 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   border-bottom: 1px solid var(--line-soft);
   background: #141419;
 }
-.workspace-label { width: 94px; display: grid; flex: none; line-height: 1.05; }
-.workspace-label span { color: #646470; font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-.workspace-label strong { margin-top: 4px; color: #d9d9e0; font-size: 12px; letter-spacing: -.01em; }
+
+.desktop-shell .topbar,
+.desktop-shell .panel-header { -webkit-app-region: drag; }
+.desktop-shell button,
+.desktop-shell input,
+.desktop-shell textarea,
+.desktop-shell select,
+.desktop-shell summary { -webkit-app-region: no-drag; }
+.desktop-shell .topbar { padding-right: 146px; }
+.desktop-shell .workbench.with-ai .topbar { padding-right: 10px; }
+.desktop-shell .assistant-panel .panel-header { padding-right: 146px; }
 
 .tab-strip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; overflow-x: auto; scrollbar-width: none; }
 .tab-strip::-webkit-scrollbar { display: none; }
@@ -144,28 +152,11 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .tab-dot.docker { background: #7ad7e5; }
 .new-tab-button { width: 30px; height: 30px; flex: none; border-radius: 8px; color: #74747f; background: transparent; font-size: 18px; }
 .new-tab-button:hover { color: #d9d9e0; background: #222228; }
-.top-actions { display: flex; align-items: center; gap: 6px; }
-
-.connect-button, .ai-toggle, .icon-button, .ghost-button, .text-button, .danger-button, .send-button, .primary-button {
+.icon-button, .ghost-button, .text-button, .danger-button, .send-button, .primary-button {
   border-radius: 8px;
   transition: background .14s ease, border-color .14s ease, color .14s ease, transform .14s ease;
   white-space: nowrap;
 }
-.connect-button, .ai-toggle {
-  height: 32px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  color: #a1a1ac;
-  border: 1px solid #303038;
-  background: #1a1a20;
-  font-size: 11px;
-  font-weight: 650;
-}
-.connect-button svg, .ai-toggle svg { width: 14px; height: 14px; }
-.connect-button:hover, .ai-toggle:hover { color: #ededf2; border-color: #464650; background: #23232a; }
-.ai-toggle.active { color: #d9dcff; border-color: #575e933f; background: #292b40; }
 .icon-button { width: 32px; height: 32px; color: #777783; background: transparent; font-size: 17px; }
 .icon-button:hover, .ghost-button:hover { color: #ededf2; background: #26262d; }
 .ghost-button { min-height: 34px; padding: 0 12px; color: #a2a2ad; border: 1px solid #32323a; background: #19191f; }
@@ -173,7 +164,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .primary-button { min-height: 38px; padding: 0 16px; color: #111119; background: #aeb8ff; font-weight: 750; }
 .primary-button:hover, .send-button:hover { background: #c6cdff; }
 .primary-button:disabled, .send-button:disabled { opacity: .42; cursor: default; }
-.primary-button:active, .connect-button:active, .ai-toggle:active { transform: translateY(1px); }
+.primary-button:active { transform: translateY(1px); }
 .text-button { padding: 5px 8px; color: #9595a1; background: transparent; }
 .text-button:hover { color: #b9c1ff; }
 .danger-button { min-height: 30px; padding: 0 11px; color: #ff9cac; border: 1px solid #58303a; background: #28171c; }
@@ -332,8 +323,6 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 @media (max-width: 700px) {
   .workbench { grid-template-columns: 45px minmax(0, 1fr); gap: 5px; padding: 5px; }
   .activity-rail { padding-inline: 3px; }
-  .workspace-label { display: none; }
   .environment-meta { display: none; }
   .field-grid.three { grid-template-columns: 1fr; }
-  .connect-button { display: none; }
 }

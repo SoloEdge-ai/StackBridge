@@ -83,6 +83,9 @@ const conversations = new ConversationService(
 const core = createCoreServer({
   allowedOrigins,
   terminalSessions,
+  ...(process.env.STACKBRIDGE_WEB_DIST_DIR === undefined
+    ? {}
+    : { staticDirectory: resolve(process.env.STACKBRIDGE_WEB_DIST_DIR) }),
   remoteSessions,
   remotePtyLauncher,
   conversations,

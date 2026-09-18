@@ -2,7 +2,20 @@
 
 StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
 
-> 当前状态：**可用的 AI 终端垂直链路已实现**。浏览器可使用真实 PowerShell、SSH Linux 和远端 Docker PTY；临时 Shell 集成记录命令、目录、输出和环境；连续 Codex 对话自动附带有界上下文；AI 建议只有在用户逐条确认、目标仍匹配且页面持有写入租约时，才会在原 Shell 执行一次。Electron 和无人值守 Agent 不在本次范围内。
+> 当前状态：**可用的 AI 终端垂直链路与 Windows x64 便携版已实现**。桌面窗口或浏览器均可使用真实 PowerShell、SSH Linux 和远端 Docker PTY；临时 Shell 集成记录命令、目录、输出和环境；连续 Codex 对话自动附带有界上下文；AI 建议只有在用户逐条确认、目标仍匹配且页面持有写入租约时，才会在原 Shell 执行一次。
+
+## Windows 便携版
+
+本地构建产物为 `release/StackBridge-Portable-x64.exe`。它是免安装单文件，双击后自动解压到临时目录、启动同源 Core 与桌面窗口，不需要 Node.js、pnpm、另装 Codex CLI 或启动令牌。终端默认从当前 Windows 用户目录启动，应用数据继续保存在 `%LOCALAPPDATA%\StackBridge`。便携包固定携带 `codex-cli 0.128.0` Windows x64，并继续使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
+
+重新构建：
+
+```powershell
+pnpm install
+pnpm desktop:portable
+```
+
+当前产物未使用商业代码签名证书，因此首次启动可能出现 Windows SmartScreen 提示。详见 [Windows 便携版验证记录](docs/WINDOWS-PORTABLE-VERIFICATION.md)。
 
 ## 运行当前原型
 
@@ -35,7 +48,7 @@ pnpm build
 ## 核心方向
 
 - Windows 客户端优先，同时允许浏览器直接连接独立 Core。
-- React + TypeScript + Vite Web UI；Electron 只承担桌面外壳职责。
+- React + TypeScript + Vite Web UI；Electron 只承担窗口、本地端口和生命周期职责。
 - 独立 Node.js Core 管理会话、策略、审批和持久化。
 - 本地 Windows 使用 ConPTY；远端 Linux 使用轻量 Go runtime。
 - SSH 复用系统 OpenSSH；Docker 通过宿主进入容器，不要求容器运行 sshd。
@@ -76,5 +89,5 @@ pnpm build
 - 普通 PowerShell、Bash 和 Zsh 已支持；手输常见 `ssh host` 与远端 `docker exec -it` 可跟踪未核验环境。tmux/screen、提权 Shell、未适配 Shell、密码/MFA askpass、带远端命令的 SSH 和绕过临时包装器的连接只提供降级能力。
 - Shell 随机标记用于隔离普通输出，不等同于防御同 UID 恶意进程的受限 IPC 安全边界；runtime binding 始终由 Core 独立核验。
 - 当前网络位置的 OpenAI 授权端点返回 `unsupported_country_region_territory`，因此真实 ChatGPT 回合需要在受支持网络下完成；Fake Codex 覆盖了协议、上下文、建议、批准、同 Shell 执行和去重测试。
-- 尚未完成全屏 TUI、中文输入法组合输入和持续高吞吐压力的完整验收，也没有生产同源静态服务、Electron 外壳或安装包签名。
+- 尚未完成全屏 TUI、中文输入法组合输入和持续高吞吐压力的完整验收；Windows 便携版已有生产同源静态服务和 Electron 外壳，但尚未做干净 Windows 矩阵及代码签名。
 - 首版不提供文件自动修改、原生命令工具、外部插件、子代理或无人值守循环。
