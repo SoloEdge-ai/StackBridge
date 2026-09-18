@@ -146,7 +146,9 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   await terminalInput.focus();
   await terminalInput.pressSequentially("Write-Output 'BUFFER_", { delay: 8 });
   const terminalBoxBeforeQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
-  const cursorBoxBeforeQuickAsk = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
+  const terminalCursor = page.locator(".terminal-pane-shell.active .xterm-cursor");
+  await expect.poll(() => terminalCursor.count()).toBeGreaterThan(0);
+  const cursorBoxBeforeQuickAsk = await terminalCursor.boundingBox();
   await page.keyboard.press("Control+Shift+Space");
   const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(inlineAssistant).toBeVisible();
@@ -158,13 +160,20 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   expect(cursorBoxBeforeQuickAsk).not.toBeNull();
   expect(quickAskBox).not.toBeNull();
   expect(Math.abs(terminalBoxWithQuickAsk!.height - terminalBoxBeforeQuickAsk!.height)).toBeLessThan(2);
-  expect(quickAskBox!.height).toBeLessThan(90);
+  expect(quickAskBox!.height).toBeLessThanOrEqual(44);
+  expect(quickAskBox!.width).toBeLessThanOrEqual(430);
   const distanceToCursor = Math.min(
     Math.abs(quickAskBox!.y - (cursorBoxBeforeQuickAsk!.y + cursorBoxBeforeQuickAsk!.height)),
     Math.abs((quickAskBox!.y + quickAskBox!.height) - cursorBoxBeforeQuickAsk!.y),
   );
   expect(distanceToCursor).toBeLessThan(20);
-  await expect(inlineAssistant.locator(".inline-context-strip")).toContainText("Local Windows");
+  await expect(inlineAssistant.locator(".inline-context-strip")).toHaveCount(0);
+  const contextIndicator = inlineAssistant.locator(".inline-context-indicator");
+  await expect(contextIndicator).toBeVisible();
+  await expect(contextIndicator).toHaveAttribute("type", "button");
+  await expect(contextIndicator).toHaveAttribute("title", /Local Windows.*powershell.*outputs/i);
+  await expect(inlineAssistant.getByRole("button", { name: "History & details" })).toHaveCount(0);
+  await expect(inlineAssistant.getByRole("button", { name: "Close Quick Ask" })).toHaveCount(0);
   const quickAskInput = inlineAssistant.locator("textarea");
   const oneLineInputBox = await quickAskInput.boundingBox();
   await quickAskInput.fill("line one\nline two\nline three");
@@ -178,6 +187,13 @@ test("opens without a launch token and drives the real terminal workbench", asyn
     path: resolve(screenshotDirectory, "08-inline-terminal-ai.png"),
     fullPage: true,
   });
+  await contextIndicator.click();
+  await expect(inlineAssistant).toHaveCount(0);
+  await expect(page.locator(".assistant-panel")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(terminalInput).toBeFocused();
+  await page.keyboard.press("Control+Shift+Space");
+  await expect(inlineAssistant).toBeVisible();
   await page.keyboard.press("Control+Shift+Space");
   await expect(inlineAssistant).toHaveCount(0);
   await expect(terminalInput).toBeFocused();
@@ -234,6 +250,10 @@ test("asks the real Codex account from the active terminal pane", async ({ page 
     "STACKBRIDGE_INLINE_AI_OK",
     { timeout: 90_000 },
   );
+  const answeredQuickAskBox = await inlineAssistant.boundingBox();
+  expect(answeredQuickAskBox).not.toBeNull();
+  expect(answeredQuickAskBox!.width).toBeLessThanOrEqual(530);
+  expect(answeredQuickAskBox!.height).toBeLessThanOrEqual(205);
   await page.screenshot({
     path: resolve(screenshotDirectory, "09-cursor-anchored-ai-response.png"),
     fullPage: true,

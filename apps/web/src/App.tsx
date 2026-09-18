@@ -767,7 +767,6 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
             context={paneContext}
             paneElement={paneElements.current.get(pane.id)}
             cursorAnchor={cursorAnchors.current.get(pane.id)}
-            shortcut={shortcut}
             onClose={() => {
               setQuickAiPaneId(undefined);
               window.dispatchEvent(new Event("stackbridge:terminal-focus"));
@@ -941,8 +940,8 @@ interface QuickAskAnchor {
 
 const quickAskGutter = 12;
 const quickAskCursorGap = 8;
-const quickAskCompactWidth = 560;
-const quickAskExpandedWidth = 680;
+const quickAskCompactWidth = 420;
+const quickAskExpandedWidth = 520;
 const quickAskFallbackCursorOffset = 80;
 const quickAskFallbackCursorHeight = 19;
 const quickAskTopFloor = 34;
@@ -1020,7 +1019,6 @@ function InlineAssistant({
   context,
   paneElement,
   cursorAnchor,
-  shortcut,
   onClose,
   onOpenHistory,
 }: {
@@ -1028,7 +1026,6 @@ function InlineAssistant({
   context: TerminalContext | undefined;
   paneElement: HTMLElement | undefined;
   cursorAnchor: TerminalCursorAnchor | undefined;
-  shortcut: string;
   onClose(): void;
   onOpenHistory(): void;
 }) {
@@ -1051,12 +1048,13 @@ function InlineAssistant({
   const anchor = useTerminalCursorAnchor(rootRef, paneElement, cursorAnchor, expanded);
   const recentOutputCount = Math.min(3, context?.recentCommandIds.length ?? 0);
   const outputLabel = locale === "zh-CN" ? `${recentOutputCount} 条输出` : `${recentOutputCount} outputs`;
+  const contextSummary = `${environment} · ${context?.cwd || "—"} · ${context?.shell || "—"} · ${outputLabel}`;
 
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    input.style.height = "34px";
-    input.style.height = `${Math.min(74, Math.max(34, input.scrollHeight))}px`;
+    input.style.height = "30px";
+    input.style.height = `${Math.min(66, Math.max(30, input.scrollHeight))}px`;
   }, [assistant.message]);
 
   const placementProps = {
@@ -1085,7 +1083,13 @@ function InlineAssistant({
   return (
     <section {...placementProps} className="inline-assistant" aria-label={t("快速询问 AI")}>
       <div className="inline-ask-row">
-        <span className="inline-ai-mark" title={`${shortcut} · ${t("Esc 返回终端")}`}>✦</span>
+        <button
+          type="button"
+          className={`inline-context-indicator ${context?.environment.verified ? "verified" : "unverified"}`}
+          title={contextSummary}
+          aria-label={t("检查上下文")}
+          onClick={onOpenHistory}
+        />
         <textarea
           ref={inputRef}
           value={assistant.message}
@@ -1100,21 +1104,16 @@ function InlineAssistant({
           disabled={turnPendingHere}
           rows={1}
         />
-        <button type="button" className="icon-button" aria-label={t("历史与详情")} title={t("历史与详情")} onClick={onOpenHistory}>↗</button>
         {turnPendingHere
           ? <button type="button" className="danger-button compact" onClick={assistant.stop}>{t("停止")}</button>
           : <button type="button" className="send-button" disabled={!assistant.message.trim() || assistant.sending} onClick={() => void assistant.send()}>↑</button>}
-        <button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button>
-      </div>
-      <div className="inline-context-strip" aria-label={t("检查上下文")}>
-        <span className="environment" title={environment}>{environment}</span>
-        <span title={context?.cwd}>{context?.cwd || "—"}</span>
-        <span>{context?.shell || "—"}</span>
-        <span>{outputLabel}</span>
       </div>
       {latestAssistantMessage ? (
         <div className="inline-ai-response">
-          <div className="message-role">AI</div>
+          <div className="message-role">
+            <span>AI</span>
+            <button type="button" className="inline-history-button" aria-label={t("历史与详情")} title={t("历史与详情")} onClick={onOpenHistory}>↗</button>
+          </div>
           <div className="message-body">{latestAssistantMessage.content}</div>
           {proposals.map((proposal) => (
             <ProposalCard

@@ -18,7 +18,7 @@ Keep `Ctrl+Shift+Space` as the default. Pressing it:
 
 1. Opens a one-line Quick Ask popover beside the xterm cursor in the focused terminal pane without changing terminal dimensions.
 2. Focuses a one-to-three-line prompt editor without changing or clearing the shell's current input buffer.
-3. Shows the full current environment chain, cwd, shell, and attached-output count in a permanently visible compact context strip rather than hiding them in a tooltip.
+3. Shows only a verified/unverified context dot while idle. Hovering or focusing reveals the full environment chain, cwd, shell, and attached-output count; activating it opens detailed context in the side panel.
 4. Pressing it again, or pressing `Esc`, closes Quick Ask and restores focus to the same terminal pane.
 
 `Enter` sends, `Shift+Enter` inserts a newline, and `Esc` returns to the terminal. IME composition must never trigger a shortcut or submit.
@@ -72,14 +72,14 @@ The draft belongs to a terminal pane. Switching panes preserves the previous dra
 
 ## Context behavior
 
-Context freezes when the user sends the prompt, not when Quick Ask opens. The default chips are:
+Context freezes when the user sends the prompt, not when Quick Ask opens. The compact composer represents the following attached context through its status dot and tooltip:
 
 - current `Local -> SSH -> Docker` chain;
 - cwd and shell;
 - most recent command and output;
 - current running-command snapshot, if one exists.
 
-Each chip can be removed before sending. A user-selected command block or output range takes precedence over the automatic latest-command attachment. Switching panes after send does not retarget the turn or its proposals.
+The side panel remains the inspectable detail and full-answer surface. Inline answers are capped to a 520px-wide, 150px-high preview. A user-selected command block or output range takes precedence over the automatic latest-command attachment. Switching panes after send does not retarget the turn or its proposals.
 
 ## Safety and compatibility
 
