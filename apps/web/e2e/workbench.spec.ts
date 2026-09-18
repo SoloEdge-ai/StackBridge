@@ -114,3 +114,48 @@ test("connects through the UI to verified SSH and Docker PTYs", async ({ page })
     fullPage: true,
   });
 });
+
+test("tracks a hand-typed SSH session into an interactive Docker shell", async ({ page }) => {
+  test.skip(process.env.STACKBRIDGE_E2E_REMOTE !== "1", "requires friden-dev-cube");
+  test.setTimeout(60_000);
+  await page.goto("/");
+
+  const terminalInput = page.locator(".terminal-host .xterm-helper-textarea");
+  await terminalInput.focus();
+  await terminalInput.pressSequentially("ssh friden-dev-cube", { delay: 8 });
+  await terminalInput.press("Enter");
+  await expect(page.locator(".environment-main")).toContainText(
+    "SSH: friden-dev-cube",
+    { timeout: 20_000 },
+  );
+  await expect(page.locator(".environment-meta")).toContainText(
+    "zsh",
+    { timeout: 20_000 },
+  );
+
+  await terminalInput.pressSequentially(
+    "docker exec -it stackbridge-m0b1-ubuntu22 bash",
+    { delay: 8 },
+  );
+  await terminalInput.press("Enter");
+  await expect(page.locator(".environment-main")).toContainText(
+    "Docker: stackbridge-m0b1-ubuntu22",
+    { timeout: 10_000 },
+  );
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
+    "/workspace#",
+    { timeout: 10_000 },
+  );
+  await page.screenshot({
+    path: resolve(screenshotDirectory, "05-manual-ssh-docker-detected.png"),
+    fullPage: true,
+  });
+
+  await terminalInput.pressSequentially("exit", { delay: 8 });
+  await terminalInput.press("Enter");
+  await expect(page.locator(".environment-main")).not.toContainText(
+    "Docker:",
+    { timeout: 10_000 },
+  );
+  await expect(page.locator(".environment-meta")).toContainText("zsh");
+});

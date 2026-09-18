@@ -2,6 +2,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const integrationFileName = "powershell-integration.ps1";
+const bashIntegrationTemplateFileName = "bashrc.template";
+const zshIntegrationTemplateFileName = "zshrc.template";
+const integrationTokenPlaceholder = "__STACKBRIDGE_SESSION_TOKEN__";
 
 export function ensurePowerShellIntegration(dataDirectory: string): string {
   const shellDirectory = join(dataDirectory, "shell");
@@ -11,6 +14,16 @@ export function ensurePowerShellIntegration(dataDirectory: string): string {
     encoding: "utf8",
     mode: 0o600,
   });
+  writeFileSync(
+    join(shellDirectory, bashIntegrationTemplateFileName),
+    bashIntegrationScript(integrationTokenPlaceholder),
+    { encoding: "utf8", mode: 0o600 },
+  );
+  writeFileSync(
+    join(shellDirectory, zshIntegrationTemplateFileName),
+    zshIntegrationScript(integrationTokenPlaceholder),
+    { encoding: "utf8", mode: 0o600 },
+  );
   return integrationPath;
 }
 
@@ -21,6 +34,8 @@ $script:StackBridgeIntegrationToken = $StackBridgeIntegrationToken
 $script:StackBridgeCommandActive = $false
 $script:StackBridgeNativeSsh = Get-Command ssh.exe -ErrorAction SilentlyContinue
 $script:StackBridgeNativeDocker = Get-Command docker.exe -ErrorAction SilentlyContinue
+$script:StackBridgeBashTemplate = Join-Path $PSScriptRoot '${bashIntegrationTemplateFileName}'
+$script:StackBridgeZshTemplate = Join-Path $PSScriptRoot '${zshIntegrationTemplateFileName}'
 
 function global:Send-StackBridgeEvent {
   param([Parameter(Mandatory=$true)][hashtable]$Event)
@@ -67,10 +82,66 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
   }
 }
 
+function Get-StackBridgeSshShape {
+  param([Parameter(Mandatory=$true)][object[]]$ArgumentList)
+  $optionsWithValue = @(
+    '-B', '-b', '-c', '-D', '-E', '-e', '-F', '-I', '-i', '-J', '-L', '-l',
+    '-m', '-O', '-o', '-p', '-Q', '-R', '-S', '-W', '-w'
+  )
+  $destinationIndex = -1
+  $skipNext = $false
+  for ($index = 0; $index -lt $ArgumentList.Count; $index++) {
+    $value = [string]$ArgumentList[$index]
+    if ($skipNext) { $skipNext = $false; continue }
+    if ($value -eq '--' -and $index + 1 -lt $ArgumentList.Count) {
+      $destinationIndex = $index + 1
+      break
+    }
+    if ($value.StartsWith('-')) {
+      if ($optionsWithValue -contains $value) { $skipNext = $true }
+      continue
+    }
+    $destinationIndex = $index
+    break
+  }
+  if ($destinationIndex -lt 0) {
+    return @{ Destination = $null; Interactive = $false }
+  }
+  return @{
+    Destination = [string]$ArgumentList[$destinationIndex]
+    Interactive = ($destinationIndex -eq $ArgumentList.Count - 1)
+  }
+}
+
+function Install-StackBridgeRemoteShellIntegration {
+  param([Parameter(Mandatory=$true)][object[]]$SshArguments)
+  if (-not (Test-Path -LiteralPath $script:StackBridgeBashTemplate) -or
+      -not (Test-Path -LiteralPath $script:StackBridgeZshTemplate)) {
+    return $false
+  }
+  try {
+    $bashTemplate = [IO.File]::ReadAllText($script:StackBridgeBashTemplate)
+    $zshTemplate = [IO.File]::ReadAllText($script:StackBridgeZshTemplate)
+    $bashScript = $bashTemplate.Replace('${integrationTokenPlaceholder}', $script:StackBridgeIntegrationToken)
+    $zshScript = $zshTemplate.Replace('${integrationTokenPlaceholder}', $script:StackBridgeIntegrationToken)
+    $bashEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($bashScript))
+    $zshEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($zshScript))
+    $installCommand = 'umask 077; mkdir -p "$HOME/.sbridge/shell" && printf %s ''' +
+      $bashEncoded + ''' | base64 -d > "$HOME/.sbridge/shell/bashrc" && printf %s ''' +
+      $zshEncoded + ''' | base64 -d > "$HOME/.sbridge/shell/.zshrc"'
+    & $script:StackBridgeNativeSsh @SshArguments $installCommand
+    return $LASTEXITCODE -eq 0
+  } catch {
+    return $false
+  }
+}
+
 if ($script:StackBridgeNativeSsh) {
   function global:ssh {
-    $displayTarget = ($args | Where-Object { $_ -is [string] -and -not $_.StartsWith('-') } | Select-Object -Last 1)
-    if (-not $displayTarget) { $displayTarget = ($args -join ' ') }
+    $sshArgs = @($args)
+    $shape = Get-StackBridgeSshShape -ArgumentList $sshArgs
+    $displayTarget = $shape.Destination
+    if (-not $displayTarget) { $displayTarget = ($sshArgs -join ' ') }
     Send-StackBridgeEvent @{
       type = 'environmentPush'
       kind = 'ssh'
@@ -78,7 +149,19 @@ if ($script:StackBridgeNativeSsh) {
       host = [string]$displayTarget
       verified = $false
     }
-    try { & $script:StackBridgeNativeSsh @args }
+    try {
+      if (-not $shape.Interactive) {
+        & $script:StackBridgeNativeSsh @sshArgs
+        return
+      }
+      if (-not (Install-StackBridgeRemoteShellIntegration -SshArguments $sshArgs)) {
+        & $script:StackBridgeNativeSsh @sshArgs
+        return
+      }
+      $launchCommand = 'if [ "\${SHELL##*/}" = "zsh" ] && command -v zsh >/dev/null 2>&1; then export STACKBRIDGE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec zsh -i; elif command -v bash >/dev/null 2>&1; then exec bash --rcfile "$HOME/.sbridge/shell/bashrc" -i; else exec "\${SHELL:-/bin/sh}" -i; fi'
+      $interactiveArgs = @('-tt') + $sshArgs
+      & $script:StackBridgeNativeSsh @interactiveArgs $launchCommand
+    }
     finally { Send-StackBridgeEvent @{ type = 'environmentPop' } }
   }
 }
@@ -120,7 +203,7 @@ Send-StackBridgeEvent @{
   shell = $(if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' })
   user = [Environment]::UserName
 }
-`;
+`.replaceAll("\\${", "${");
 }
 
 export function bashIntegrationScript(integrationToken: string): string {
@@ -145,6 +228,37 @@ __sb_emit_json() {
   local encoded
   encoded="$(printf '%s' "$1" | base64 | tr -d '\r\n' | tr '+/' '-_' | tr -d '=')"
   printf '\033]777;stackbridge;%s;%s\007' "$__sb_token" "$encoded"
+}
+
+docker() {
+  local -a docker_args=("$@")
+  local arg selector selector_json docker_status
+  local saw_exec=0 expect_value=0 interactive=0 tty=0
+  for arg in "\${docker_args[@]}"; do
+    if [[ "$saw_exec" != 1 ]]; then
+      [[ "$arg" == exec ]] && saw_exec=1
+      continue
+    fi
+    if [[ "$expect_value" == 1 ]]; then expect_value=0; continue; fi
+    case "$arg" in
+      -it|-ti) interactive=1; tty=1 ;;
+      -i|--interactive) interactive=1 ;;
+      -t|--tty) tty=1 ;;
+      -u|--user|-w|--workdir|-e|--env|--env-file|--detach-keys) expect_value=1 ;;
+      --) ;;
+      -*) ;;
+      *) selector="$arg"; break ;;
+    esac
+  done
+  if [[ "$saw_exec" == 1 && "$interactive" == 1 && "$tty" == 1 && -n "$selector" ]]; then
+    selector_json="$(__sb_json_escape "$selector")"
+    __sb_emit_json "{\"type\":\"environmentPush\",\"kind\":\"docker\",\"label\":\"Docker: $selector_json\"}"
+    command docker "\${docker_args[@]}"
+    docker_status=$?
+    __sb_emit_json '{"type":"environmentPop"}'
+    return "$docker_status"
+  fi
+  command docker "\${docker_args[@]}"
 }
 
 __sb_emit_prompt() {
@@ -221,6 +335,37 @@ __sb_json_escape() {
 __sb_emit_json() {
   local encoded="$(printf '%s' "$1" | base64 | tr -d '\r\n' | tr '+/' '-_' | tr -d '=')"
   printf '\033]777;stackbridge;%s;%s\007' "$__sb_token" "$encoded"
+}
+
+docker() {
+  local -a docker_args=("$@")
+  local arg selector selector_json docker_status
+  local saw_exec=0 expect_value=0 interactive=0 tty=0
+  for arg in "\${docker_args[@]}"; do
+    if [[ "$saw_exec" != 1 ]]; then
+      [[ "$arg" == exec ]] && saw_exec=1
+      continue
+    fi
+    if [[ "$expect_value" == 1 ]]; then expect_value=0; continue; fi
+    case "$arg" in
+      -it|-ti) interactive=1; tty=1 ;;
+      -i|--interactive) interactive=1 ;;
+      -t|--tty) tty=1 ;;
+      -u|--user|-w|--workdir|-e|--env|--env-file|--detach-keys) expect_value=1 ;;
+      --) ;;
+      -*) ;;
+      *) selector="$arg"; break ;;
+    esac
+  done
+  if [[ "$saw_exec" == 1 && "$interactive" == 1 && "$tty" == 1 && -n "$selector" ]]; then
+    selector_json="$(__sb_json_escape "$selector")"
+    __sb_emit_json "{\"type\":\"environmentPush\",\"kind\":\"docker\",\"label\":\"Docker: $selector_json\"}"
+    command docker "\${docker_args[@]}"
+    docker_status=$?
+    __sb_emit_json '{"type":"environmentPop"}'
+    return "$docker_status"
+  fi
+  command docker "\${docker_args[@]}"
 }
 
 __sb_preexec() {

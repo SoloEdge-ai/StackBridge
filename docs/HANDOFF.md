@@ -51,7 +51,7 @@ Docker: context=default, container=stackbridge-m0b1-ubuntu22,
 ## 明确剩余边界
 
 - Go runtime 仍是协议 2 的安装、身份和结构化执行通道。当前远端 PTY由 Core 的 OpenSSH 进程持有；协议 3 supervisor、PTY 分帧和 SSH 短断线/Core 重启重附着未实现。
-- 手输普通 `ssh`/`docker exec -it` 能原生使用并产生未核验环境事件；完整自动执行能力只对“新建连接”创建的受管标签开放。
+- 手输普通交互式 `ssh host` 会把当前 PTY 的会话专用集成同步到远端 `~/.sbridge/shell`；远端 `docker exec -it` 的进入/退出会产生未核验环境事件。带远端命令的 SSH、嵌套 SSH 和绕过包装器的连接仍降级；完整自动执行能力只对“新建连接”创建的受管标签开放。
 - Shell 随机标记不是针对同 UID 恶意进程的强认证通道；受限命名管道/Unix socket 仍待后续安全加固，runtime binding 不依赖该标记授权。
 - 没有完成密码/MFA askpass、tmux/screen、提权 Shell、全屏 TUI、中文输入法组合输入和长时间高吞吐矩阵。
 - Codex 动态客户端工具与统一 `/v1/events` 流尚未实现；当前由 Core 预组装上下文、HTTP 返回 AI 回合并轮询 operation。

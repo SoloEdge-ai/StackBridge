@@ -5,7 +5,7 @@
 ## 已实现范围
 
 - xterm.js 多标签终端工作台；Core 持有真实 ConPTY/SSH/Docker PTY，页面刷新只重新附着和回放，不重跑命令。
-- Windows PowerShell 5.1 会话级集成；远端 Bash/Zsh 集成写入登录用户私有的 `~/.sbridge/shell`，不修改 PowerShell Profile、`.bashrc` 或 `.zshrc`。每个 PTY 使用独立随机标记，普通、无标记的终端输出不能改变 Shell 状态；runtime binding 始终由 Core 独立核验，不从 OSC 建立。
+- Windows PowerShell 5.1 会话级集成；手输普通交互式 `ssh host` 时，将同一个 PTY 的会话专用 Bash/Zsh 集成同步到登录用户私有的 `~/.sbridge/shell`，远端 `docker exec -it` 包装器在进入/退出时推送和弹出 Docker 环境。整个过程不修改 PowerShell Profile、`.bashrc` 或 `.zshrc`。每个 PTY 使用独立随机标记，普通、无标记的终端输出不能改变 Shell 状态；runtime binding 始终由 Core 独立核验，不从 OSC 建立。
 - 环境栏显示本地 → SSH → Docker 层级、cwd、Shell、空闲/运行状态；完整 Docker binding 使用 runtime 核验的 daemon、容器 ID、启动时间和 init start ticks。
 - `CommandBlock` 记录人工/AI 来源、环境层、binding、cwd、用户、Shell、时间、退出码、输出范围与捕获质量；运行中的命令可生成截至提问时的屏幕输出快照。
 - 一个 `ConversationSession` 对应一个 Codex thread；每次 turn 冻结独立 `AgentSession`。跨终端提问保留同一对话，并插入环境时间线。
@@ -32,6 +32,7 @@
 7. Playwright 从无 Cookie 的新浏览器直接打开工作台，无需任何启动令牌；真实输入 PowerShell 命令并看到输出，快捷键可收放 AI 面板。
 8. Playwright 经 UI 连接真实 `friden-dev-cube` SSH/Zsh 和 Ubuntu 22.04 Docker/Bash，环境均为已核验，实际命令输出分别为 `PLAYWRIGHT_SSH_OK` 与 `PLAYWRIGHT_DOCKER_OK`。
 9. 关闭终端标签会终止对应 PTY、释放本地和远端会话容量；Playwright 每条用例清理自己创建的终端，长期运行 Core 不再因测试积累达到 16 会话上限。
+10. Playwright 在本地 PowerShell 手输 `ssh friden-dev-cube`，确认 cwd/Shell 更新为 `/home/friden` 与 Zsh；随后手输 `docker exec -it stackbridge-m0b1-ubuntu22 bash`，环境栏出现 Docker 层，`exit` 后恢复 SSH 层。
 
 ## 自动化验证
 
@@ -42,7 +43,7 @@
 - 审批 HTTP/WS：浏览器不能注入命令字段；无写入租约拒绝；批准只写入一次；重复请求返回同一 operation。
 - SQLite：重启后恢复对话/建议/operation，批准记录在 PTY 写入前落盘；命令元数据和分块输出可读，超出预算后只清理输出。
 - Go runtime：身份、结构化 argv、Docker binding、超时、安装路径和 Bash 优先探测。
-- Playwright：3 条 Chromium 端到端用例覆盖零令牌启动、本地真实终端、AI 快捷键、连接表单，以及真实 SSH/Docker PTY。
+- Playwright：4 条 Chromium 端到端用例覆盖零令牌启动、本地真实终端、AI 快捷键、连接表单、受管 SSH/Docker PTY，以及手输 SSH → Docker 的环境进入/退出。
 
 运行：
 
@@ -62,6 +63,6 @@ StackBridge 能启动官方 ChatGPT OAuth，并支持查询、取消和退出登
 
 当前远端交互 PTY由 Core 持有的系统 OpenSSH 会话承载；页面刷新可以恢复，但 Core 重启或 SSH 传输断开后尚不能重新附着远端 supervisor。Go runtime 仍是协议 2 的身份/安装/结构化执行通道，协议 3 的 supervisor、PTY 分帧和短断线恢复是后续稳定性工作，不能计入本次已验证声明。
 
-手动输入普通 `ssh`/`docker exec -it` 时，临时包装器会记录环境进入/退出，但无法独立核验的子 Shell 显示“环境未核验”，禁止确认后自动执行。完整核验和建议执行使用“新建连接”创建的受管 SSH/Docker 标签。
+手动输入普通交互式 `ssh host` 时会自动同步会话专用 Shell 集成，随后在远端输入 `docker exec -it` 会记录环境进入/退出；这些无法独立核验的子 Shell 显示“环境未核验”，禁止确认后自动执行。带远端命令的 SSH、嵌套 SSH、绕过包装器及复杂自定义连接仍属于降级边界。完整核验和建议执行使用“新建连接”创建的受管 SSH/Docker 标签。
 
 当前 Codex 回合使用 Core 预组装的冻结上下文与结构化建议输出；计划中的三个 App Server 动态客户端工具尚未开放。AI 文本当前以一次 HTTP 回合返回，operation 使用有界轮询；统一 `WS /v1/events` 和增量 AI 文本流仍属于后续协议工作。这不影响已验证的终端、上下文解释、逐条确认和同 Shell 提交主链路，但不计入完整计划已完成项。

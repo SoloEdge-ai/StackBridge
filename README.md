@@ -13,7 +13,7 @@ pnpm install
 pnpm dev
 ```
 
-打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。可以新建本地、SSH 或远端 Docker 终端；`Ctrl+Shift+Space` 打开/收起 AI 对话。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。
+打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。可以新建本地、SSH 或远端 Docker 终端；`Ctrl+Shift+Space` 打开/收起 AI 对话。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。在终端手输普通 `ssh host` 时，当前会话专用的 Bash/Zsh 集成会自动同步到远端用户私有的 `~/.sbridge/shell`，因此后续手输 `docker exec -it ...` 也能显示进入和退出的环境层级。
 
 AI 面板使用独立的 StackBridge Codex 数据目录。点击“使用 ChatGPT 登录”完成官方授权；StackBridge 不复制当前 Codex 应用的 token 文件。提问时默认发送当前环境、最近 20 条命令摘要和最近 3 条输出，总量最多 64 KiB。所有建议执行前都需要再次确认。
 
@@ -73,7 +73,7 @@ pnpm build
 
 - 页面刷新可重新附着 Core 持有的本地/远端 PTY；Core 重启后会恢复对话和命令历史，但本地 PowerShell 进程不保证存活，远端 supervisor/短断线重附着仍待协议 3 实现。
 - 多页面可同时查看同一终端，但只有一个浏览器会话持有写入租约；确认执行也要求同一会话持有该租约。
-- 普通 PowerShell、Bash 和 Zsh 已支持；tmux/screen、提权 Shell、未适配 Shell、密码/MFA askpass 和绕过临时包装器的连接只提供降级能力。
+- 普通 PowerShell、Bash 和 Zsh 已支持；手输常见 `ssh host` 与远端 `docker exec -it` 可跟踪未核验环境。tmux/screen、提权 Shell、未适配 Shell、密码/MFA askpass、带远端命令的 SSH 和绕过临时包装器的连接只提供降级能力。
 - Shell 随机标记用于隔离普通输出，不等同于防御同 UID 恶意进程的受限 IPC 安全边界；runtime binding 始终由 Core 独立核验。
 - 当前网络位置的 OpenAI 授权端点返回 `unsupported_country_region_territory`，因此真实 ChatGPT 回合需要在受支持网络下完成；Fake Codex 覆盖了协议、上下文、建议、批准、同 Shell 执行和去重测试。
 - 尚未完成全屏 TUI、中文输入法组合输入和持续高吞吐压力的完整验收，也没有生产同源静态服务、Electron 外壳或安装包签名。

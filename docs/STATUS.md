@@ -20,7 +20,7 @@
 ## 已知边界
 
 - 当前受管远端 PTY由 Core 的系统 OpenSSH 进程持有。页面刷新可重附着；Core 重启、SSH 短断线后的远端 supervisor 恢复仍待 runtime 协议 3。
-- 手输 `ssh`/`docker exec -it` 可正常原生使用并记录未核验环境进入/退出；需要确认执行时使用“新建连接”建立完整 binding。
+- 手输普通交互式 `ssh host` 会自动同步会话专用 Bash/Zsh 集成；远端 `docker exec -it` 的进入/退出已通过真实 Playwright 链路验证并记录为未核验环境。需要确认执行时仍使用“新建连接”建立完整 binding。
 - 未适配 Shell、tmux/screen、提权 Shell、密码/MFA askpass 和没有交互 Shell 的容器降级为解释/复制建议，不开放自动提交。
 - Shell 随机标记能隔离普通输出，但不是防御同 UID 恶意进程的强认证通道；受限命名管道/Unix socket 仍是后续安全加固项，runtime binding 不受该标记授权。
 - 当前网络访问 OpenAI OAuth 返回 `unsupported_country_region_territory`；真实账号最终验收需要在受支持网络完成。
