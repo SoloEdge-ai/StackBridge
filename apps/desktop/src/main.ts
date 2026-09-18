@@ -3,6 +3,8 @@ import { join, resolve } from "node:path";
 
 import { app, BrowserWindow, dialog, Menu, shell } from "electron";
 
+import { requireCodexCli, resolveCodexCliCandidates } from "./codex-cli.js";
+
 app.setName("StackBridge");
 app.setPath("userData", join(app.getPath("appData"), "StackBridge"));
 
@@ -21,9 +23,10 @@ if (!gotSingleInstanceLock) {
 
   app.on("window-all-closed", () => app.quit());
   void startDesktop().catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    console.error(message);
-    dialog.showErrorBox("StackBridge 启动失败", message);
+    const diagnostic = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(diagnostic);
+    dialog.showErrorBox("StackBridge could not start", message);
     app.quit();
   });
 }
@@ -32,6 +35,11 @@ async function startDesktop(): Promise<void> {
   await app.whenReady();
   app.setAppUserModelId("ai.soloedge.stackbridge");
   Menu.setApplicationMenu(null);
+
+  const codex = await requireCodexCli(resolveCodexCliCandidates());
+  process.env.STACKBRIDGE_CODEX_BIN = codex.command;
+  process.env.STACKBRIDGE_CODEX_ARG_PREFIX = JSON.stringify(codex.argumentPrefix);
+  console.log(`Using system Codex CLI: ${codex.version} (${codex.resolvedPath})`);
 
   const port = await availableLoopbackPort();
   const workbenchUrl = `http://127.0.0.1:${port}`;
@@ -94,11 +102,6 @@ function configureCore(port: number, workbenchUrl: string): void {
     ? join(resourcesRoot, "web")
     : join(resourcesRoot, "apps", "web", "dist");
   process.env.STACKBRIDGE_RUNTIME_MANIFEST = join(resourcesRoot, "runtime", "bin", "manifest.json");
-  if (app.isPackaged) {
-    const codexDirectory = join(resourcesRoot, "codex");
-    process.env.STACKBRIDGE_CODEX_BIN = join(codexDirectory, "bin", "codex.exe");
-    process.env.PATH = [join(codexDirectory, "codex-path"), process.env.PATH ?? ""].filter(Boolean).join(";");
-  }
 }
 
 async function availableLoopbackPort(): Promise<number> {

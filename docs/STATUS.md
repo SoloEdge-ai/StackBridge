@@ -11,10 +11,10 @@
 | SSH/Docker 交互 PTY | implemented | verified | UI 可创建真实 SSH Zsh 和 Ubuntu 22.04 Docker Bash PTY；实时输入、输出、cwd、状态、Ctrl+C 和刷新重附着通过实机验收 |
 | 终端工作台 UI | implemented | verified | 默认英文，可在 Settings 中即时切换简体中文并持久化；`Ctrl+Shift+Space` 在聚焦窗格的 xterm 光标旁打开约 38px 高的单行 Quick Ask，仅保留上下文状态点、输入框和发送键，不改变终端高度，空间不足时自动翻转；Esc 返回终端且保留输入缓冲；右键提供解释输出、修复命令和横向/纵向分栏；每窗格持续环境链、提示符内联链路和 AI 目标已通过 Chromium Playwright |
 | Shell 集成与命令块 | implemented | verified | PowerShell/Bash/Zsh 会话级集成；本地 PTY 与远端 Shell 在当前会话声明 `xterm-256color`，并为 ASCII 登录环境选择已有 UTF-8 locale；手输 SSH → Docker 后容器提示符持续回显完整链路且保留用户 rc 配置；命令、输出、目录、退出码、环境归属和运行中快照有自动化覆盖 |
-| 连续 AI 对话 | implemented | verified | Codex App Server、连续 thread、跨环境时间线、64 KiB 上下文、停止生成和历史恢复已实现；随包 runtime 返回 Astra/Sol/Terra/Luna/GPT-5.5，默认 Luna；独立 `CODEX_HOME/auth.json` 已解决 Windows keyring 长 token 问题；稳定 App Server 请求、真实 OAuth、真实 Luna 回答在开发版与新便携版均已通过 |
+| 连续 AI 对话 | implemented | verified | Codex App Server、连续 thread、跨环境时间线、64 KiB 上下文、停止生成和历史恢复已实现；系统 Codex CLI 返回 Astra/Sol/Terra/Luna/GPT-5.5，默认 Luna；独立 `CODEX_HOME/auth.json` 已解决 Windows keyring 长 token 问题；稳定 App Server 请求、真实 OAuth、真实 Luna 回答在开发版与便携版均已通过 |
 | 确认后同 Shell 执行 | implemented | verified-with-fake-ai | 不可变建议、五分钟过期、冻结作用域、核验环境、存活/空闲/空输入校验、写入租约、批准前持久化 operation、去重、实时可见执行和结果关联通过测试 |
 | 本地持久化 | implemented | verified | SQLite 保存对话/建议/命令元数据，输出分块；7 天/1 GiB 清理和 migration 前备份有测试 |
-| Windows 便携版 | implemented | verified-on-current-host | Electron 44 x64 单文件已生成；从产物本体启动后，生产同源页面、会话认证、随包 Codex App Server、真实 PowerShell/SSH/Docker PTY、WebSocket 输入和输出通过冒烟验证 |
+| Windows 便携版 | implemented | verified-on-current-host | Electron 44 x64 单文件不再内置 Codex；启动器核验系统 `codex --version`，失败时显示原生错误并退出，成功后才启动 Core 和窗口；99.3 MiB 瘦身产物已确认无 `resources/codex`，并通过生产终端、真实 Codex 回合和分栏冒烟验证 |
 | 文件修改/无人值守 Agent | not-started | not-started | 明确不属于本次交付 |
 
 ## 已知边界

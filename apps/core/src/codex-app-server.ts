@@ -99,6 +99,7 @@ export class CodexAppServer implements TerminalAssistant {
       codexHome: string;
       controlDirectory: string;
       command?: string;
+      argumentPrefix?: string[];
       requestTimeoutMs?: number;
     },
   ) {}
@@ -239,12 +240,16 @@ export class CodexAppServer implements TerminalAssistant {
   private async start(): Promise<void> {
     mkdirSync(this.options.codexHome, { recursive: true, mode: 0o700 });
     mkdirSync(this.options.controlDirectory, { recursive: true, mode: 0o700 });
-    const child = spawn(this.options.command ?? "codex", codexAppServerArguments(), {
-      cwd: this.options.controlDirectory,
-      env: { ...process.env, CODEX_HOME: this.options.codexHome },
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
+    const child = spawn(
+      this.options.command ?? "codex",
+      [...(this.options.argumentPrefix ?? []), ...codexAppServerArguments()],
+      {
+        cwd: this.options.controlDirectory,
+        env: { ...process.env, CODEX_HOME: this.options.codexHome },
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
     this.child = child;
     createInterface({ input: child.stdout }).on("line", (line) => this.handleLine(line));
     child.stderr.on("data", (data: Buffer) => {

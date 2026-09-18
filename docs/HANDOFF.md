@@ -18,7 +18,7 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 - AI 只能返回回答与命令建议。Core 拥有不可变建议和持久化 operation；执行需要逐条确认、五分钟内有效、原目标未变、环境已核验、Shell 仍存活且空闲、输入为空，并且批准页面持有写入租约。
 - 经确认命令在原 Shell 执行，所以 `cd`、`export` 和虚拟环境状态继续有效；重复确认、刷新和重试不会二次提交。
 - SQLite 保存对话、冻结建议和命令元数据，终端输出分块保存；默认七天/1 GiB 清理。
-- Windows x64 便携版将生产 Web、Core、ConPTY 依赖、`codex-cli 0.155.0-alpha.2.6` 和 Linux 远程 runtime 封装为单文件；Electron 仅管理窗口、随机回环端口和进程生命周期。
+- Windows x64 便携版将生产 Web、Core、ConPTY 依赖和 Linux 远程 runtime 封装为单文件；Codex CLI 不再打包。Electron 启动时检查 PATH 中全部 Codex 候选，将 npm `.cmd` shim 解析为包内原生可执行文件，按完整版本标识选择并核验最新的系统 Codex 0.155.0+ 及其 `app-server` 能力；失败则显示原生错误并退出，成功后把同一个绝对启动描述交给 Core，同时继续管理窗口、随机回环端口和进程生命周期。
 
 ## 实机状态
 

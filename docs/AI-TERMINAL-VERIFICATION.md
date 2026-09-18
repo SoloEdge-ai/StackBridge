@@ -9,7 +9,7 @@
 - 原 53px 全局环境栏已移除；每个终端窗格内用 27px 紧凑状态线持续显示本地 → SSH → Docker 层级、cwd、Shell 和核验状态。受管 PowerShell/Bash/Zsh 在每次提示符前回显同一链路；完整 Docker binding 使用 runtime 核验的 daemon、容器 ID、启动时间和 init start ticks。
 - `CommandBlock` 记录人工/AI 来源、环境层、binding、cwd、用户、Shell、时间、退出码、输出范围与捕获质量；运行中的命令可生成截至提问时的屏幕输出快照。
 - 一个 `ConversationSession` 对应一个 Codex thread；每次 turn 冻结独立 `AgentSession`。跨终端提问保留同一对话，并插入环境时间线。
-- Codex App Server 使用独立 `CODEX_HOME`、文件型凭据存储和只读 sandbox；`auth.json` 位于当前 Windows 用户的 StackBridge 数据目录，避开系统 keyring 对长 OAuth token 的 2560 字符限制。便携版固定携带 `codex-cli 0.155.0-alpha.2.6`，模型目录来自 App Server（Astra、Sol、Terra、Luna、GPT-5.5），新对话默认 Luna。`thread/start` 与 `turn/start` 只发送稳定 API 字段，避免未声明 experimental capability 时被拒绝。关闭原生 shell/web search，不向模型提供文件、浏览器、插件或子代理工具。
+- Codex App Server 使用独立 `CODEX_HOME`、文件型凭据存储和只读 sandbox；`auth.json` 位于当前 Windows 用户的 StackBridge 数据目录，避开系统 keyring 对长 OAuth token 的 2560 字符限制。桌面启动器检查系统 PATH 中全部 Codex `.exe` 及 npm `.cmd`/`.bat`，将 npm shim 解析为包内原生 Codex 可执行文件，要求版本至少为 0.155.0，并按完整版本标识选择版本最高且能通过 `app-server --help` 的候选。选中的原生绝对启动描述随后交给 Core，避免再次解析 PATH，同时保证 App Server 是可直接管理生命周期的子进程。便携包不内置 Codex 二进制。模型目录来自该 App Server（Astra、Sol、Terra、Luna、GPT-5.5），新对话默认 Luna。`thread/start` 与 `turn/start` 只发送稳定 API 字段，避免未声明 experimental capability 时被拒绝。关闭原生 shell/web search，不向模型提供文件、浏览器、插件或子代理工具。
 - Web UI 默认英文；Settings 中可即时切换简体中文并持久化。环境链、状态、连接表单、AI 面板、建议卡和错误提示随语言切换；终端进程已经输出的原始字节不会被改写。
 - 默认上下文为最近 20 条命令摘要、最近 3 条输出和显式引用记录，总输出上限 64 KiB；清理 ANSI/OSC，并对私钥块和常见 token 前缀做基础脱敏。
 - 模型输出被 Core 转换为不可变 `CommandProposal`。建议绑定终端、环境层、binding、cwd、Shell、上下文版本和输入版本，五分钟过期。
@@ -39,7 +39,7 @@
 13. `L001` 的登录环境原始 charmap 为 `ANSI_X3.4-1968`，且从未声明 `TERM` 的 Windows PTY 发起 SSH 时远端终端会退化为 `dumb`；StackBridge 现在为 PTY 与远端会话声明 `xterm-256color`，并从远端已安装 locale 中选择 `C.UTF-8`。Playwright 确认 `$TERM` 为 `xterm-256color`、`locale charmap` 返回 `UTF-8`、Oh My Zsh 的 `➜` 正常显示，且不存在 `?➜` 或连续问号。服务器系统 locale 与 `.zshrc` 均未修改。
 14. Playwright 验证首次启动默认英文，Settings 中切换简体中文后全部主要入口即时更新，刷新后语言选择仍然保留。
 15. 用户侧真实 OAuth 到达授权完成回调后暴露 keyring 长度失败；回归测试先复现 App Server 启动参数强制 keyring，再验证改为官方 `file` 存储。真实 App Server 已成功返回 `auth.openai.com` 授权地址并完成取消流程。
-16. 真实 ChatGPT 登录状态下，Playwright 从当前 PowerShell 窗格打开 Quick Ask，向随包 Codex App Server 发起 Luna 回合并收到精确哨兵回答；同一用例在开发服务器和本次便携 EXE 的随机回环 Core 上均通过。
+16. 真实 ChatGPT 登录状态下，Playwright 从当前 PowerShell 窗格打开 Quick Ask，向系统 Codex CLI 启动的 App Server 发起 Luna 回合并收到精确哨兵回答；同一用例在开发服务器和本次便携 EXE 的随机回环 Core 上均通过。
 17. 右键“解释最近输出 / 修复最近命令”在命令块标记尚未到达时仍可用，Core 会用该终端冻结快照与默认最近记录构建上下文；若已有精确命令 ID，则额外固定引用该命令。
 18. 横向分栏中分别输入两份未发送的 Quick Ask 草稿，切换焦点后两份草稿互不串线；后续提问目标始终取当前聚焦窗格。
 19. 再次按 `Ctrl+Shift+Space` 会关闭 Quick Ask、把焦点还给原 xterm，并保持 Shell 输入缓冲；内联回答和运行中状态只显示在发起该 turn 的窗格。停止生成会立即恢复该窗格草稿，同时取消原 Codex turn。

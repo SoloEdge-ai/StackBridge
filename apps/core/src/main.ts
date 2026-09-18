@@ -68,11 +68,21 @@ const remoteSessions = new RemoteSessionManager(
 );
 const remotePtyLauncher = createRemotePtyLauncher(remoteSessions, terminalCwd);
 const codexDirectories = defaultCodexDirectories(dataDirectory);
+const codexArgumentPrefix = process.env.STACKBRIDGE_CODEX_ARG_PREFIX === undefined
+  ? undefined
+  : JSON.parse(process.env.STACKBRIDGE_CODEX_ARG_PREFIX) as unknown;
+if (codexArgumentPrefix !== undefined && (
+  !Array.isArray(codexArgumentPrefix)
+  || !codexArgumentPrefix.every((value) => typeof value === "string")
+)) {
+  throw new Error("STACKBRIDGE_CODEX_ARG_PREFIX must be a JSON string array");
+}
 const ai = new CodexAppServer({
   ...codexDirectories,
   ...(process.env.STACKBRIDGE_CODEX_BIN === undefined
     ? {}
     : { command: process.env.STACKBRIDGE_CODEX_BIN }),
+  ...(codexArgumentPrefix === undefined ? {} : { argumentPrefix: codexArgumentPrefix }),
 });
 const conversations = new ConversationService(
   terminalSessions,

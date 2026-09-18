@@ -70,9 +70,6 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
     devDependencies:
-      '@openai/codex-win32-x64':
-        specifier: npm:@openai/codex@0.155.0-alpha.2.6-win32-x64
-        version: '@openai/codex@0.155.0-alpha.2.6-win32-x64'
       '@types/node':
         specifier: 22.20.3
         version: 22.20.3
@@ -545,12 +542,6 @@ packages:
   '@noble/hashes@2.4.0':
     resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
-
-  '@openai/codex@0.155.0-alpha.2.6-win32-x64':
-    resolution: {integrity: sha512-u+BFyDgEr0dQxIZ73XWRpRJdBeLDgWbNUmF/CvRSoGEOhrwVhKqIJbudQKhA8H/Plx09HUsMTjWX0SVMHWSi5Q==}
-    engines: {node: '>=16'}
-    cpu: [x64]
-    os: [win32]
 
   '@oxc-project/types@0.150.0':
     resolution: {integrity: sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw==}
@@ -2679,8 +2670,6 @@ snapshots:
   '@noble/hashes@1.4.0': {}
 
   '@noble/hashes@2.4.0': {}
-
-  '@openai/codex@0.155.0-alpha.2.6-win32-x64': {}
 
   '@oxc-project/types@0.150.0': {}
 
