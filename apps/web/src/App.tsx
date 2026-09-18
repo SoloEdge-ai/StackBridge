@@ -1,11 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type FormEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -93,6 +95,11 @@ interface TerminalContext {
   environment: TerminalEnvironment;
   environmentStack: TerminalEnvironment[];
   recentCommandIds: string[];
+}
+
+interface TerminalCursorAnchor {
+  getCursorRect(): DOMRect | undefined;
+  observe(listener: () => void): () => void;
 }
 
 interface CodexModel {
@@ -388,6 +395,8 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     () => localStorage.getItem(shortcutStorageKey) ?? "Ctrl+Shift+Space",
   );
   const creatingInitial = useRef(false);
+  const paneElements = useRef(new Map<string, HTMLElement>());
+  const cursorAnchors = useRef(new Map<string, TerminalCursorAnchor>());
 
   const persistTabs = useCallback((next: TerminalTab[]) => {
     setTabs(next);
@@ -522,6 +531,19 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       },
     }));
   }, [t]);
+
+  const handlePaneElement = useCallback((sessionId: string, element: HTMLElement | null) => {
+    if (element) paneElements.current.set(sessionId, element);
+    else paneElements.current.delete(sessionId);
+  }, []);
+
+  const handleCursorAnchor = useCallback((
+    sessionId: string,
+    anchor: TerminalCursorAnchor | undefined,
+  ) => {
+    if (anchor) cursorAnchors.current.set(sessionId, anchor);
+    else cursorAnchors.current.delete(sessionId);
+  }, []);
 
   const selectTerminal = useCallback((id: string) => {
     if (id === activeId) return;
@@ -690,6 +712,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     return (
       <section
         key={pane.id}
+        ref={(element) => handlePaneElement(pane.id, element)}
         className={`terminal-pane-shell ${isActive ? "active" : ""}`}
         role="group"
         aria-label={t("终端窗格")}
@@ -735,12 +758,15 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
           active={isActive}
           onContext={handleTerminalContext}
           onState={handleTerminalState}
+          onCursorAnchor={handleCursorAnchor}
           onUnavailable={() => void closePane(tab.id, pane.id)}
         />
         {quickAiPaneId === pane.id ? (
           <InlineAssistant
             assistant={assistant}
             context={paneContext}
+            paneElement={paneElements.current.get(pane.id)}
+            cursorAnchor={cursorAnchors.current.get(pane.id)}
             shortcut={shortcut}
             onClose={() => {
               setQuickAiPaneId(undefined);
@@ -906,20 +932,108 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   );
 }
 
+interface QuickAskAnchor {
+  left: number;
+  top: number;
+  width: number;
+  placement: "above" | "below";
+}
+
+const quickAskGutter = 12;
+const quickAskCursorGap = 8;
+const quickAskCompactWidth = 560;
+const quickAskExpandedWidth = 680;
+const quickAskFallbackCursorOffset = 80;
+const quickAskFallbackCursorHeight = 19;
+const quickAskTopFloor = 34;
+
+function useTerminalCursorAnchor(
+  rootRef: RefObject<HTMLElement | null>,
+  pane: HTMLElement | undefined,
+  cursorAnchor: TerminalCursorAnchor | undefined,
+  expanded: boolean,
+): QuickAskAnchor {
+  const [anchor, setAnchor] = useState<QuickAskAnchor>({
+    left: quickAskGutter,
+    top: 40,
+    width: quickAskCompactWidth,
+    placement: "below",
+  });
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root || !pane) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const paneRect = pane.getBoundingClientRect();
+        const cursorRect = cursorAnchor?.getCursorRect();
+        const preferredWidth = expanded ? quickAskExpandedWidth : quickAskCompactWidth;
+        const width = Math.min(preferredWidth, Math.max(0, paneRect.width - (quickAskGutter * 2)));
+        const height = root.getBoundingClientRect().height;
+        const cursorLeft = cursorRect?.left ?? paneRect.left + quickAskGutter;
+        const cursorTop = cursorRect?.top ?? paneRect.bottom - quickAskFallbackCursorOffset;
+        const cursorBottom = cursorRect?.bottom ?? cursorTop + quickAskFallbackCursorHeight;
+        const left = Math.max(
+          quickAskGutter,
+          Math.min(
+            cursorLeft - paneRect.left - quickAskCursorGap,
+            paneRect.width - width - quickAskGutter,
+          ),
+        );
+        const belowTop = cursorBottom - paneRect.top + quickAskCursorGap;
+        const fitsBelow = belowTop + height <= paneRect.height - quickAskGutter;
+        const placement = fitsBelow ? "below" : "above";
+        const top = fitsBelow
+          ? belowTop
+          : Math.max(quickAskTopFloor, cursorTop - paneRect.top - height - quickAskCursorGap);
+        setAnchor((current) => (
+          Math.abs(current.left - left) < 1
+          && Math.abs(current.top - top) < 1
+          && Math.abs(current.width - width) < 1
+          && current.placement === placement
+            ? current
+            : { left, top, width, placement }
+        ));
+      });
+    };
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(root);
+    resizeObserver.observe(pane);
+    const stopObservingCursor = cursorAnchor?.observe(update);
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      stopObservingCursor?.();
+      window.removeEventListener("resize", update);
+    };
+  }, [cursorAnchor, expanded, pane, rootRef]);
+
+  return anchor;
+}
+
 function InlineAssistant({
   assistant,
   context,
+  paneElement,
+  cursorAnchor,
   shortcut,
   onClose,
   onOpenHistory,
 }: {
   assistant: AssistantController;
   context: TerminalContext | undefined;
+  paneElement: HTMLElement | undefined;
+  cursorAnchor: TerminalCursorAnchor | undefined;
   shortcut: string;
   onClose(): void;
   onOpenHistory(): void;
 }) {
   const { locale, t } = useLanguage();
+  const rootRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => inputRef.current?.focus(), []);
   const environment = context
@@ -932,38 +1046,71 @@ function InlineAssistant({
   }) ?? [];
   const turnPendingHere = assistant.sending
     && assistant.pendingTerminalId === context?.terminalSessionId;
+  const expanded = !!latestAssistantMessage || turnPendingHere
+    || (assistant.error !== undefined && assistant.errorTerminalId === context?.terminalSessionId);
+  const anchor = useTerminalCursorAnchor(rootRef, paneElement, cursorAnchor, expanded);
+  const recentOutputCount = Math.min(3, context?.recentCommandIds.length ?? 0);
+  const outputLabel = locale === "zh-CN" ? `${recentOutputCount} 条输出` : `${recentOutputCount} outputs`;
+
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.style.height = "34px";
+    input.style.height = `${Math.min(74, Math.max(34, input.scrollHeight))}px`;
+  }, [assistant.message]);
+
+  const placementProps = {
+    ref: rootRef,
+    style: { left: anchor.left, top: anchor.top, width: anchor.width },
+    "data-placement": anchor.placement,
+  } as const;
   if (!assistant.account) {
     return (
-      <section className="inline-assistant compact" aria-label={t("快速询问 AI")}>
-        <header><div><span className="inline-ai-mark">✦</span><strong>{t("正在连接 Codex…")}</strong></div><button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button></header>
+      <section {...placementProps} className="inline-assistant compact" aria-label={t("快速询问 AI")}>
+        <div className="inline-ask-row"><span className="inline-ai-mark">✦</span><strong>{t("正在连接 Codex…")}</strong><button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button></div>
       </section>
     );
   }
   if (!assistant.account.authenticated) {
     return (
-      <section className="inline-assistant compact" aria-label={t("快速询问 AI")}>
-        <header>
-          <div><span className="inline-ai-mark">✦</span><strong>{t("询问当前终端")}</strong><small>{t("需要先使用 ChatGPT 登录")}</small></div>
-          <div><button type="button" className="primary-button compact" onClick={() => void assistant.login()}>{t("使用 ChatGPT 登录")}</button><button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button></div>
-        </header>
+      <section {...placementProps} className="inline-assistant compact" aria-label={t("快速询问 AI")}>
+        <div className="inline-ask-row">
+          <span className="inline-ai-mark">✦</span><strong>{t("需要先使用 ChatGPT 登录")}</strong>
+          <button type="button" className="primary-button compact" onClick={() => void assistant.login()}>{t("使用 ChatGPT 登录")}</button>
+          <button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button>
+        </div>
       </section>
     );
   }
   return (
-    <section className="inline-assistant" aria-label={t("快速询问 AI")}>
-      <header>
-        <div><span className="inline-ai-mark">✦</span><strong>{t("询问当前终端")}</strong><small>{environment}</small></div>
-        <div>
-          <button type="button" className="text-button" onClick={onOpenHistory}>{t("历史与详情")}</button>
-          <button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button>
-        </div>
-      </header>
-      <div className="inline-context-chips" aria-label={t("检查上下文")}>
+    <section {...placementProps} className="inline-assistant" aria-label={t("快速询问 AI")}>
+      <div className="inline-ask-row">
+        <span className="inline-ai-mark" title={`${shortcut} · ${t("Esc 返回终端")}`}>✦</span>
+        <textarea
+          ref={inputRef}
+          value={assistant.message}
+          onChange={(event) => assistant.setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void assistant.send();
+            }
+          }}
+          placeholder={t("问当前命令、输出或下一步…")}
+          disabled={turnPendingHere}
+          rows={1}
+        />
+        <button type="button" className="icon-button" aria-label={t("历史与详情")} title={t("历史与详情")} onClick={onOpenHistory}>↗</button>
+        {turnPendingHere
+          ? <button type="button" className="danger-button compact" onClick={assistant.stop}>{t("停止")}</button>
+          : <button type="button" className="send-button" disabled={!assistant.message.trim() || assistant.sending} onClick={() => void assistant.send()}>↑</button>}
+        <button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button>
+      </div>
+      <div className="inline-context-strip" aria-label={t("检查上下文")}>
+        <span className="environment" title={environment}>{environment}</span>
         <span title={context?.cwd}>{context?.cwd || "—"}</span>
         <span>{context?.shell || "—"}</span>
-        <span>{locale === "zh-CN"
-          ? `最近 ${Math.min(3, context?.recentCommandIds.length ?? 0)} 条输出`
-          : `${Math.min(3, context?.recentCommandIds.length ?? 0)} recent outputs`}</span>
+        <span>{outputLabel}</span>
       </div>
       {latestAssistantMessage ? (
         <div className="inline-ai-response">
@@ -988,26 +1135,6 @@ function InlineAssistant({
       {assistant.error && assistant.errorTerminalId === context?.terminalSessionId
         ? <div className="panel-error">{assistant.error}</div>
         : null}
-      <textarea
-        ref={inputRef}
-        value={assistant.message}
-        onChange={(event) => assistant.setMessage(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            void assistant.send();
-          }
-        }}
-        placeholder={t("问当前命令、输出或下一步…")}
-        disabled={turnPendingHere}
-        rows={2}
-      />
-      <footer>
-        <span>{shortcut} · {t("Esc 返回终端")}</span>
-        {turnPendingHere
-          ? <button type="button" className="danger-button" onClick={assistant.stop}>{t("停止")}</button>
-          : <button type="button" className="send-button" disabled={!assistant.message.trim() || assistant.sending} onClick={() => void assistant.send()}>↑</button>}
-      </footer>
     </section>
   );
 }
@@ -1025,17 +1152,39 @@ function AppIcon({ name }: { name: "terminal" | "connection" | "spark" | "settin
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19 13.5v-3l-2-.7-.8-1.8.9-2-2.1-2.1-2 .9-1.8-.8-.7-2h-3l-.7 2-1.8.8-2-.9L.9 6l.9 2L1 9.8l-2 .7v3l2 .7.8 1.8-.9 2L3 20.1l2-.9 1.8.8.7 2h3l.7-2 1.8-.8 2 .9 2.1-2.1-.9-2 .8-1.8 2-.7Z" transform="translate(2) scale(.83)" /></svg>;
 }
 
+function createXtermCursorAnchor(host: HTMLElement): TerminalCursorAnchor {
+  return {
+    getCursorRect() {
+      return host.querySelector<HTMLElement>(".xterm-cursor")?.getBoundingClientRect();
+    },
+    observe(listener) {
+      const screen = host.querySelector<HTMLElement>(".xterm-screen");
+      if (!screen) return () => {};
+      const observer = new MutationObserver(listener);
+      observer.observe(screen, {
+        attributes: true,
+        attributeFilter: ["class", "style"],
+        childList: true,
+        subtree: true,
+      });
+      return () => observer.disconnect();
+    },
+  };
+}
+
 function TerminalPane({
   sessionId,
   active,
   onContext,
   onState,
+  onCursorAnchor,
   onUnavailable,
 }: {
   sessionId: string;
   active: boolean;
   onContext(sessionId: string, context: TerminalContext): void;
   onState(sessionId: string, state: ConnectionState, writable: boolean, detail: string): void;
+  onCursorAnchor(sessionId: string, anchor: TerminalCursorAnchor | undefined): void;
   onUnavailable(): void;
 }) {
   const { t } = useLanguage();
@@ -1044,15 +1193,17 @@ function TerminalPane({
   const activeRef = useRef(active);
   const onContextRef = useRef(onContext);
   const onStateRef = useRef(onState);
+  const onCursorAnchorRef = useRef(onCursorAnchor);
   const onUnavailableRef = useRef(onUnavailable);
   const tRef = useRef(t);
 
   useEffect(() => {
     onContextRef.current = onContext;
     onStateRef.current = onState;
+    onCursorAnchorRef.current = onCursorAnchor;
     onUnavailableRef.current = onUnavailable;
     tRef.current = t;
-  }, [onContext, onState, onUnavailable, t]);
+  }, [onContext, onCursorAnchor, onState, onUnavailable, t]);
 
   useEffect(() => {
     activeRef.current = active;
@@ -1098,6 +1249,7 @@ function TerminalPane({
     terminal.loadAddon(fit);
     terminal.open(host);
     terminalRef.current = terminal;
+    onCursorAnchorRef.current(sessionId, createXtermCursorAnchor(host));
     fit.fit();
     if (activeRef.current) terminal.focus();
     let disposed = false;
@@ -1185,6 +1337,7 @@ function TerminalPane({
       socket?.close();
       terminal.dispose();
       terminalRef.current = undefined;
+      onCursorAnchorRef.current(sessionId, undefined);
     };
   }, [sessionId]);
   return <div className="terminal-host" ref={hostRef} />;

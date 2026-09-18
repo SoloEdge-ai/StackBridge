@@ -125,11 +125,55 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   });
 
   await terminalInput.focus();
+  await terminalInput.pressSequentially(
+    "1..8 | ForEach-Object { Write-Output \"FOLLOW_$($_)\"; Start-Sleep -Milliseconds 150 }",
+    { delay: 2 },
+  );
+  await terminalInput.press("Enter");
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText("FOLLOW_1");
+  await page.keyboard.press("Control+Shift+Space");
+  const followingAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
+  await expect(followingAssistant).toBeVisible();
+  const followingStartBox = await followingAssistant.boundingBox();
+  expect(followingStartBox).not.toBeNull();
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText("FOLLOW_8", { timeout: 10_000 });
+  await expect.poll(async () => {
+    const currentBox = await followingAssistant.boundingBox();
+    return currentBox !== null && currentBox.y > followingStartBox!.y + 30;
+  }).toBe(true);
+  await page.keyboard.press("Escape");
+
+  await terminalInput.focus();
   await terminalInput.pressSequentially("Write-Output 'BUFFER_", { delay: 8 });
+  const terminalBoxBeforeQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
+  const cursorBoxBeforeQuickAsk = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
   await page.keyboard.press("Control+Shift+Space");
   const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(inlineAssistant).toBeVisible();
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
+  const terminalBoxWithQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
+  const quickAskBox = await inlineAssistant.boundingBox();
+  expect(terminalBoxBeforeQuickAsk).not.toBeNull();
+  expect(terminalBoxWithQuickAsk).not.toBeNull();
+  expect(cursorBoxBeforeQuickAsk).not.toBeNull();
+  expect(quickAskBox).not.toBeNull();
+  expect(Math.abs(terminalBoxWithQuickAsk!.height - terminalBoxBeforeQuickAsk!.height)).toBeLessThan(2);
+  expect(quickAskBox!.height).toBeLessThan(90);
+  const distanceToCursor = Math.min(
+    Math.abs(quickAskBox!.y - (cursorBoxBeforeQuickAsk!.y + cursorBoxBeforeQuickAsk!.height)),
+    Math.abs((quickAskBox!.y + quickAskBox!.height) - cursorBoxBeforeQuickAsk!.y),
+  );
+  expect(distanceToCursor).toBeLessThan(20);
+  await expect(inlineAssistant.locator(".inline-context-strip")).toContainText("Local Windows");
+  const quickAskInput = inlineAssistant.locator("textarea");
+  const oneLineInputBox = await quickAskInput.boundingBox();
+  await quickAskInput.fill("line one\nline two\nline three");
+  const threeLineInputBox = await quickAskInput.boundingBox();
+  expect(oneLineInputBox).not.toBeNull();
+  expect(threeLineInputBox).not.toBeNull();
+  expect(threeLineInputBox!.height).toBeGreaterThan(oneLineInputBox!.height + 20);
+  expect(threeLineInputBox!.height).toBeLessThanOrEqual(76);
+  await quickAskInput.fill("");
   await page.screenshot({
     path: resolve(screenshotDirectory, "08-inline-terminal-ai.png"),
     fullPage: true,
@@ -143,6 +187,33 @@ test("opens without a launch token and drives the real terminal workbench", asyn
     "BUFFER_PRESERVED",
     { timeout: 10_000 },
   );
+
+  await terminalInput.focus();
+  await terminalInput.pressSequentially("1..80 | ForEach-Object { Write-Output $_ }; Write-Output 'SCROLL_END_80'", { delay: 2 });
+  await terminalInput.press("Enter");
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
+    "SCROLL_END_80",
+    { timeout: 10_000 },
+  );
+  await expect.poll(async () => {
+    const terminalBox = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
+    const cursorBox = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
+    return terminalBox !== null && cursorBox !== null
+      && cursorBox.y > terminalBox.y + terminalBox.height - 80;
+  }).toBe(true);
+  const terminalBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
+  const cursorBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
+  await page.keyboard.press("Control+Shift+Space");
+  await expect(inlineAssistant).toHaveAttribute("data-placement", "above");
+  const terminalBoxWithFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
+  const flippedQuickAskBox = await inlineAssistant.boundingBox();
+  expect(terminalBoxBeforeFlippedQuickAsk).not.toBeNull();
+  expect(cursorBoxBeforeFlippedQuickAsk).not.toBeNull();
+  expect(terminalBoxWithFlippedQuickAsk).not.toBeNull();
+  expect(flippedQuickAskBox).not.toBeNull();
+  expect(Math.abs(terminalBoxWithFlippedQuickAsk!.height - terminalBoxBeforeFlippedQuickAsk!.height)).toBeLessThan(2);
+  expect(Math.abs((flippedQuickAskBox!.y + flippedQuickAskBox!.height) - cursorBoxBeforeFlippedQuickAsk!.y)).toBeLessThan(20);
+  await page.keyboard.press("Escape");
 });
 
 test("asks the real Codex account from the active terminal pane", async ({ page }) => {
@@ -163,6 +234,10 @@ test("asks the real Codex account from the active terminal pane", async ({ page 
     "STACKBRIDGE_INLINE_AI_OK",
     { timeout: 90_000 },
   );
+  await page.screenshot({
+    path: resolve(screenshotDirectory, "09-cursor-anchored-ai-response.png"),
+    fullPage: true,
+  });
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
 });
 

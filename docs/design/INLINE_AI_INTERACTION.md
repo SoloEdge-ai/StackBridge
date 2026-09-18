@@ -4,7 +4,7 @@ Status: shortcut iteration implemented; managed `/ai` and removable context chip
 
 ## Outcome
 
-The AI assistant should feel like part of the focused terminal pane, not a separate destination. The primary interaction becomes a compact Quick Ask layer attached to the bottom of the active pane. The existing side panel remains available for conversation history, model selection, context inspection, and long answers, but is no longer the default place to begin a question.
+The AI assistant should feel like part of the focused terminal pane, not a separate destination. The primary interaction is a compact Quick Ask popover anchored beside the active xterm cursor. It overlays rather than resizes the terminal and flips above the cursor when there is not enough room below. The existing side panel remains available for conversation history, model selection, context inspection, and long answers, but is no longer the default place to begin a question.
 
 StackBridge should adopt Warp's proximity and explicit input modes without copying its natural-language auto-detection. Warp owns a native input editor and can decide whether the buffer is a command or a prompt before anything reaches the shell. StackBridge currently forwards xterm input to the real PowerShell/Bash/Zsh line editor, so silently classifying or withholding terminal bytes would weaken normal terminal behavior.
 
@@ -16,9 +16,9 @@ External product evidence is recorded in [`../research/warp-ai-terminal-interact
 
 Keep `Ctrl+Shift+Space` as the default. Pressing it:
 
-1. Opens Quick Ask inside the focused terminal pane, immediately above its bottom status line.
+1. Opens a one-line Quick Ask popover beside the xterm cursor in the focused terminal pane without changing terminal dimensions.
 2. Focuses a one-to-three-line prompt editor without changing or clearing the shell's current input buffer.
-3. Shows compact context chips for the current environment chain, cwd, and attached command/output.
+3. Shows the full current environment chain, cwd, shell, and attached-output count in a permanently visible compact context strip rather than hiding them in a tooltip.
 4. Pressing it again, or pressing `Esc`, closes Quick Ask and restores focus to the same terminal pane.
 
 `Enter` sends, `Shift+Enter` inserts a newline, and `Esc` returns to the terminal. IME composition must never trigger a shortcut or submit.
@@ -96,6 +96,7 @@ The existing Core conversation and approval APIs are sufficient for the first it
 
 1. Extract conversation state and `send`/`decide` operations from `AssistantPanel` into a workspace-level controller.
 2. Add one Quick Ask presentation per terminal pane, rendered as a DOM sibling over xterm rather than inside the PTY stream.
+   Its anchor observes xterm screen mutations as well as pane resizing, so background output and cursor movement reposition the popover without requiring another shortcut press.
 3. Change the existing shortcut from merely toggling the side panel to toggling and focusing Quick Ask for the active pane.
 4. Reuse `ProposalCard` in the inline result and the side-panel history view.
 5. Default the side panel to closed; expose `Open history` from Quick Ask and keep a separate configurable history shortcut.
@@ -107,6 +108,7 @@ No custom terminal input editor or natural-language classifier is required for t
 
 - The shortcut opens a focused prompt within the active terminal pane in one action.
 - Existing partially typed shell input is byte-for-byte unchanged after opening and closing Quick Ask.
+- The prompt grows from one to three lines; when the xterm cursor is near the bottom edge, the complete popover flips above it and remains within 20px of the cursor without resizing the terminal.
 - The question is sent with the correct SSH/Docker chain and latest command output without copying.
 - A proposal can be inserted or approved from the inline card and targets the frozen pane exactly once.
 - Switching split panes changes the draft and next-turn target without retargeting an existing answer.
