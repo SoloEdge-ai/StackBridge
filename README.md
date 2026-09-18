@@ -26,7 +26,7 @@ pnpm install
 pnpm dev
 ```
 
-打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。可以新建本地、SSH 或远端 Docker 终端；`Ctrl+Shift+Space` 打开/收起 AI 对话。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。在终端手输普通 `ssh host` 时，当前会话专用的 Bash/Zsh 集成会自动同步到远端用户私有的 `~/.sbridge/shell`，因此后续手输 `docker exec -it ...` 也能显示进入和退出的环境层级。
+打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。可以新建本地、SSH 或远端 Docker 终端；在任意终端窗格右键可选择横向（左右）或纵向（上下）分栏，每个分栏都是独立 PTY，AI 上下文跟随当前聚焦窗格。受管 SSH/Docker 分栏会复制同一连接配置并重新核验目标；手输连接无法安全复制运行态，因此新分栏从本地 PowerShell 开始。每个窗格内侧使用一条紧凑状态线持续显示环境链、cwd 和 Shell，受管 PowerShell/Bash/Zsh 还会在每次提示符前回显环境链。`Ctrl+Shift+Space` 打开/收起 AI 对话。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。在终端手输普通 `ssh host` 时，当前会话专用的 Bash/Zsh 集成会自动同步到远端用户私有的 `~/.sbridge/shell`，因此后续手输 `docker exec -it ...` 也能显示进入和退出的环境层级。
 
 AI 面板使用独立的 StackBridge Codex 数据目录。点击“使用 ChatGPT 登录”完成官方授权；StackBridge 不复制当前 Codex 应用的 token 文件。提问时默认发送当前环境、最近 20 条命令摘要和最近 3 条输出，总量最多 64 KiB。所有建议执行前都需要再次确认。
 
@@ -41,7 +41,7 @@ pnpm build
 当前工作区：
 
 - `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell/SSH/Docker PTY、Shell 集成、Codex App Server、审批状态机和 SQLite/分块输出持久化。
-- `apps/web`：React/Vite+xterm.js 终端工作台、可关闭多标签、环境栏、连续 AI 对话、上下文预览和命令建议卡。
+- `apps/web`：React/Vite+xterm.js 终端工作台、可关闭多标签、横向/纵向分栏、窗格内紧凑环境链、连续 AI 对话、上下文预览和命令建议卡。
 - `packages/protocol`：Web/Core 共用的运行时消息 schema。
 - `runtime`：Linux Go runtime，提供自安装/回滚、身份握手、结构化 argv 与经宿主核验的 Docker 执行；仓库内置 amd64/arm64 静态产物。
 

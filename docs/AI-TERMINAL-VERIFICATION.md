@@ -4,9 +4,9 @@
 
 ## 已实现范围
 
-- xterm.js 多标签终端工作台；Core 持有真实 ConPTY/SSH/Docker PTY，页面刷新只重新附着和回放，不重跑命令。
+- xterm.js 多标签、多分栏终端工作台；右键可创建横向（左右）或纵向（上下）分栏，每个窗格对应独立 TerminalSession/PTY。受管 SSH/Docker 分栏复制连接配置并重新核验同一目标。Core 持有真实 ConPTY/SSH/Docker PTY，页面刷新只重新附着和回放，不重跑命令。
 - Windows PowerShell 5.1 会话级集成；手输普通交互式 `ssh host` 时，将同一个 PTY 的会话专用 Bash/Zsh 集成同步到登录用户私有的 `~/.sbridge/shell`，远端 `docker exec -it` 包装器在进入/退出时推送和弹出 Docker 环境。整个过程不修改 PowerShell Profile、`.bashrc` 或 `.zshrc`。每个 PTY 使用独立随机标记，普通、无标记的终端输出不能改变 Shell 状态；runtime binding 始终由 Core 独立核验，不从 OSC 建立。
-- 环境栏显示本地 → SSH → Docker 层级、cwd、Shell、空闲/运行状态；完整 Docker binding 使用 runtime 核验的 daemon、容器 ID、启动时间和 init start ticks。
+- 原 53px 全局环境栏已移除；每个终端窗格内用 27px 紧凑状态线持续显示本地 → SSH → Docker 层级、cwd、Shell 和核验状态。受管 PowerShell/Bash/Zsh 在每次提示符前回显同一链路；完整 Docker binding 使用 runtime 核验的 daemon、容器 ID、启动时间和 init start ticks。
 - `CommandBlock` 记录人工/AI 来源、环境层、binding、cwd、用户、Shell、时间、退出码、输出范围与捕获质量；运行中的命令可生成截至提问时的屏幕输出快照。
 - 一个 `ConversationSession` 对应一个 Codex thread；每次 turn 冻结独立 `AgentSession`。跨终端提问保留同一对话，并插入环境时间线。
 - Codex App Server 使用独立 `CODEX_HOME`、系统 keyring 和只读 sandbox；关闭原生 shell/web search，不向模型提供文件、浏览器、插件或子代理工具。
@@ -24,15 +24,17 @@
 完成的浏览器验收：
 
 1. 本地 PowerShell 启动只显示正常提示符，临时集成命令不暴露；中文、emoji、`cd` 和环境变量状态正常。
-2. SSH 标签进入真实 Zsh，环境栏显示 `本地 Windows → friden@friden-dev-cube`；cwd 从 `/home/friden` 更新为 `/tmp`，中文输出和 `Ctrl+C` 正常。
-3. Docker 标签进入真实 Bash，环境栏显示完整三层路径；runtime 优先选择可用 Bash，修复了 `/bin/sh --rcfile` 不兼容。
+2. SSH 标签进入真实 Zsh，窗格内状态线与提示符回显均显示 `本地 Windows → friden@friden-dev-cube`；cwd 从 `/home/friden` 更新为 `/tmp`，中文输出和 `Ctrl+C` 正常。
+3. Docker 标签进入真实 Bash，窗格内状态线与提示符回显均显示完整三层路径；runtime 优先选择可用 Bash，修复了 `/bin/sh --rcfile` 不兼容。
 4. 在容器设置 `APP_ENV=stackbridge` 并切换到 `/tmp`；页面刷新后重新附着同一 PTY，变量与 cwd 保留，命令没有重跑。
 5. 回放期间暂停 xterm 自动回复的输入转发，避免刷新时把 terminal capability response 写入当前提示符。
 6. runtime 版本变化触发一次性部署提案；批准后安装到 `~/.sbridge`，随后连接静默复用匹配摘要的产物。
 7. Playwright 从无 Cookie 的新浏览器直接打开工作台，无需任何启动令牌；真实输入 PowerShell 命令并看到输出，快捷键可收放 AI 面板。
 8. Playwright 经 UI 连接真实 `friden-dev-cube` SSH/Zsh 和 Ubuntu 22.04 Docker/Bash，环境均为已核验，实际命令输出分别为 `PLAYWRIGHT_SSH_OK` 与 `PLAYWRIGHT_DOCKER_OK`。
 9. 关闭终端标签会终止对应 PTY、释放本地和远端会话容量；Playwright 每条用例清理自己创建的终端，长期运行 Core 不再因测试积累达到 16 会话上限。
-10. Playwright 在本地 PowerShell 手输 `ssh friden-dev-cube`，确认 cwd/Shell 更新为 `/home/friden` 与 Zsh；随后手输 `docker exec -it stackbridge-m0b1-ubuntu22 bash`，环境栏出现 Docker 层，`exit` 后恢复 SSH 层。
+10. Playwright 在本地 PowerShell 手输 `ssh friden-dev-cube`，确认 cwd/Shell 更新为 `/home/friden` 与 Zsh；随后手输 `docker exec -it stackbridge-m0b1-ubuntu22 bash`，窗格环境链出现 Docker 层，`exit` 后恢复 SSH 层。
+11. Playwright 从终端右键菜单分别创建左右和上下分栏；新窗格建立独立 PowerShell/ConPTY，能够独立输入与输出，刷新后恢复布局，单独关闭时折叠布局。
+12. Playwright 对真实 `friden-dev-cube` SSH/Zsh 与 `stackbridge-m0b1-ubuntu22` Docker/Bash 分别创建新分栏，确认每个窗格独立显示完整环境链、执行命令，并在下一次提示符前再次回显该链路；活动状态和 AI 目标随聚焦窗格切换。
 
 ## 自动化验证
 
@@ -43,7 +45,7 @@
 - 审批 HTTP/WS：浏览器不能注入命令字段；无写入租约拒绝；批准只写入一次；重复请求返回同一 operation。
 - SQLite：重启后恢复对话/建议/operation，批准记录在 PTY 写入前落盘；命令元数据和分块输出可读，超出预算后只清理输出。
 - Go runtime：身份、结构化 argv、Docker binding、超时、安装路径和 Bash 优先探测。
-- Playwright：4 条 Chromium 端到端用例覆盖零令牌启动、本地真实终端、AI 快捷键、连接表单、受管 SSH/Docker PTY，以及手输 SSH → Docker 的环境进入/退出。
+- Playwright：7 条 Chromium 端到端用例覆盖零令牌启动、本地真实终端、AI 快捷键、左右/上下分栏、布局恢复、真实受管 SSH/Docker 分栏与链路回显、连接表单，以及手输 SSH → Docker 的环境进入/退出。
 
 运行：
 
@@ -64,5 +66,7 @@ StackBridge 能启动官方 ChatGPT OAuth，并支持查询、取消和退出登
 当前远端交互 PTY由 Core 持有的系统 OpenSSH 会话承载；页面刷新可以恢复，但 Core 重启或 SSH 传输断开后尚不能重新附着远端 supervisor。Go runtime 仍是协议 2 的身份/安装/结构化执行通道，协议 3 的 supervisor、PTY 分帧和短断线恢复是后续稳定性工作，不能计入本次已验证声明。
 
 手动输入普通交互式 `ssh host` 时会自动同步会话专用 Shell 集成，随后在远端输入 `docker exec -it` 会记录环境进入/退出；这些无法独立核验的子 Shell 显示“环境未核验”，禁止确认后自动执行。带远端命令的 SSH、嵌套 SSH、绕过包装器及复杂自定义连接仍属于降级边界。完整核验和建议执行使用“新建连接”创建的受管 SSH/Docker 标签。
+
+从旧 `stackbridge.terminalTabs.v2` 迁移的浏览器标签只保存了会话 ID、标题和类型，没有可安全重放的主机、端口、用户、Docker context 与容器参数。这类旧标签的分栏菜单明确显示“新 PowerShell”；重新通过“新建连接”打开一次后，v3 存储会保留不含部署批准凭据的可复用连接定义，随后分栏才复制并重新核验同一远端目标。
 
 当前 Codex 回合使用 Core 预组装的冻结上下文与结构化建议输出；计划中的三个 App Server 动态客户端工具尚未开放。AI 文本当前以一次 HTTP 回合返回，operation 使用有界轮询；统一 `WS /v1/events` 和增量 AI 文本流仍属于后续协议工作。这不影响已验证的终端、上下文解释、逐条确认和同 Shell 提交主链路，但不计入完整计划已完成项。

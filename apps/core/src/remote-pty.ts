@@ -136,7 +136,13 @@ function buildRemoteCommand(
   snapshot: RemoteSessionSnapshot,
 ): string {
   const launchShell = shellLaunchCommand(snapshot.shell!);
-  if (request.kind === "ssh") return launchShell;
+  const context = request.kind === "ssh"
+    ? `本地 Windows → ${request.user}@${request.host}`
+    : `本地 Windows → ${request.user}@${request.host} → Docker: ${request.container}`;
+  const contextBase64 = Buffer.from(context, "utf8").toString("base64");
+  if (request.kind === "ssh") {
+    return `export STACKBRIDGE_CONTEXT_B64=${posixQuote(contextBase64)}; ${launchShell}`;
+  }
   if (snapshot.containerId === undefined) {
     throw new Error("Verified Docker terminal is missing the container instance id");
   }
@@ -150,6 +156,8 @@ function buildRemoteCommand(
     request.containerUser,
     "-w",
     request.cwd,
+    "-e",
+    `STACKBRIDGE_CONTEXT_B64=${contextBase64}`,
     snapshot.containerId,
     "/bin/sh",
     "-lc",

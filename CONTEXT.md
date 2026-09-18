@@ -28,7 +28,7 @@ The user-visible, continuous AI conversation. It maps to one Codex thread and ma
 
 ### TerminalSession
 
-One live terminal tab, its PTY, ordered output replay, write lease, Shell state, and environment stack. A TerminalSession stays alive when the browser detaches and is the only place where approved same-Shell commands may be submitted.
+One live terminal pane, its PTY, ordered output replay, write lease, Shell state, and environment stack. A workspace tab may arrange several TerminalSessions in horizontal or vertical splits. A TerminalSession stays alive when the browser detaches and is the only place where approved same-Shell commands may be submitted.
 
 ### EnvironmentFrame
 

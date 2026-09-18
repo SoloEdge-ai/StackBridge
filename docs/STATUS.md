@@ -9,7 +9,7 @@
 | SSH/Docker 目标身份 | implemented | verified | 严格 OpenSSH、host key、runtime/boot、Docker daemon/full ID/start ticks/UID/cwd/shell binding 已在真实 Ubuntu 22.04 验证 |
 | runtime 自动同步 | implemented | verified | linux/amd64、arm64 `0.2.0-dev` 产物可确认后同步到登录用户 `~/.sbridge`；摘要、原子切换和回滚保留 |
 | SSH/Docker 交互 PTY | implemented | verified | UI 可创建真实 SSH Zsh 和 Ubuntu 22.04 Docker Bash PTY；实时输入、输出、cwd、状态、Ctrl+C 和刷新重附着通过实机验收 |
-| 终端工作台 UI | implemented | verified | 终端主画布、唯一活动栏入口、紧凑标签、环境路径、停靠 AI 面板和标签关闭已通过 Chromium Playwright；关闭标签会释放 PTY/远端会话容量 |
+| 终端工作台 UI | implemented | verified | 终端主画布、紧凑标签、右键横向/纵向分栏、每窗格持续环境链、每次提示符内联链路、按窗格切换 AI 上下文和关闭操作已通过真实 SSH/Docker Chromium Playwright；关闭窗格或标签会释放对应 PTY/远端会话容量 |
 | Shell 集成与命令块 | implemented | verified | PowerShell/Bash/Zsh 会话级集成；命令、输出、目录、退出码、环境归属和运行中快照有自动化覆盖 |
 | 连续 AI 对话 | implemented | partially-verified | Codex App Server、模型列表、连续 thread、跨环境时间线、64 KiB 上下文、停止生成和历史恢复已实现；Fake Codex 通过，真实 OAuth 被当前网络地区限制阻塞 |
 | 确认后同 Shell 执行 | implemented | verified-with-fake-ai | 不可变建议、五分钟过期、冻结作用域、核验环境、存活/空闲/空输入校验、写入租约、批准前持久化 operation、去重、实时可见执行和结果关联通过测试 |

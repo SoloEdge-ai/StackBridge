@@ -5,6 +5,7 @@ const integrationFileName = "powershell-integration.ps1";
 const bashIntegrationTemplateFileName = "bashrc.template";
 const zshIntegrationTemplateFileName = "zshrc.template";
 const integrationTokenPlaceholder = "__STACKBRIDGE_SESSION_TOKEN__";
+const localEnvironmentLabelBase64 = "5pys5ZywIFdpbmRvd3M=";
 
 export function ensurePowerShellIntegration(dataDirectory: string): string {
   const shellDirectory = join(dataDirectory, "shell");
@@ -32,6 +33,8 @@ export function powerShellIntegrationScript(): string {
 param([Parameter(Mandatory=$true)][string]$StackBridgeIntegrationToken)
 $script:StackBridgeIntegrationToken = $StackBridgeIntegrationToken
 $script:StackBridgeCommandActive = $false
+$script:StackBridgeContext = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${localEnvironmentLabelBase64}'))
+$script:StackBridgeSeparator = " $([char]0x2192) "
 $script:StackBridgeNativeSsh = Get-Command ssh.exe -ErrorAction SilentlyContinue
 $script:StackBridgeNativeDocker = Get-Command docker.exe -ErrorAction SilentlyContinue
 $script:StackBridgeBashTemplate = Join-Path $PSScriptRoot '${bashIntegrationTemplateFileName}'
@@ -63,7 +66,8 @@ function global:prompt {
     shell = $(if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' })
     user = [Environment]::UserName
   }
-  "PS $($executionContext.SessionState.Path.CurrentLocation)> "
+  $contextLine = "$([char]27)[2;38;5;111m$([char]0x256D)$([char]0x2500)[ $script:StackBridgeContext ]$([char]27)[0m"
+  "$contextLine$([Environment]::NewLine)PS $($executionContext.SessionState.Path.CurrentLocation)> "
 }
 
 if (Get-Module -ListAvailable -Name PSReadLine) {
@@ -158,7 +162,9 @@ if ($script:StackBridgeNativeSsh) {
         & $script:StackBridgeNativeSsh @sshArgs
         return
       }
-      $launchCommand = 'if [ "\${SHELL##*/}" = "zsh" ] && command -v zsh >/dev/null 2>&1; then export STACKBRIDGE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec zsh -i; elif command -v bash >/dev/null 2>&1; then exec bash --rcfile "$HOME/.sbridge/shell/bashrc" -i; else exec "\${SHELL:-/bin/sh}" -i; fi'
+      $contextText = $script:StackBridgeContext + $script:StackBridgeSeparator + "SSH: $displayTarget"
+      $contextEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($contextText))
+      $launchCommand = 'export STACKBRIDGE_CONTEXT_B64=''' + $contextEncoded + '''; if [ "\${SHELL##*/}" = "zsh" ] && command -v zsh >/dev/null 2>&1; then export STACKBRIDGE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec zsh -i; elif command -v bash >/dev/null 2>&1; then exec bash --rcfile "$HOME/.sbridge/shell/bashrc" -i; else exec "\${SHELL:-/bin/sh}" -i; fi'
       $interactiveArgs = @('-tt') + $sshArgs
       & $script:StackBridgeNativeSsh @interactiveArgs $launchCommand
     }
@@ -214,6 +220,9 @@ if [[ -f "$HOME/.bashrc" && -z "\${STACKBRIDGE_BASHRC_LOADED:-}" ]]; then
   source "$HOME/.bashrc"
 fi
 
+__sb_prompt_context="$(printf '%s' "\${STACKBRIDGE_CONTEXT_B64:-}" | base64 -d 2>/dev/null | tr -d '\000-\037\177')"
+[[ -n "$__sb_prompt_context" ]] || __sb_prompt_context='远端 Shell'
+
 __sb_json_escape() {
   local value="$1"
   value="\${value//\\/\\\\}"
@@ -228,6 +237,10 @@ __sb_emit_json() {
   local encoded
   encoded="$(printf '%s' "$1" | base64 | tr -d '\r\n' | tr '+/' '-_' | tr -d '=')"
   printf '\033]777;stackbridge;%s;%s\007' "$__sb_token" "$encoded"
+}
+
+__sb_print_context() {
+  printf '\033[2;38;5;111m╭─[ %s ]\033[0m\r\n' "$__sb_prompt_context"
 }
 
 docker() {
@@ -304,6 +317,7 @@ __sb_precmd() {
   if [[ "$__sb_command_active" == 1 ]]; then __sb_emit_end "$status"; fi
   __sb_command_active=0
   __sb_emit_prompt
+  __sb_print_context
   __sb_waiting_for_command=1
   __sb_guard=0
 }
@@ -323,6 +337,9 @@ elif [[ -f "$HOME/.zshrc" ]]; then
 fi
 autoload -Uz add-zsh-hook
 
+typeset -g __sb_prompt_context="$(printf '%s' "\${STACKBRIDGE_CONTEXT_B64:-}" | base64 -d 2>/dev/null | tr -d '\000-\037\177')"
+[[ -n "$__sb_prompt_context" ]] || typeset -g __sb_prompt_context='远端 Shell'
+
 __sb_json_escape() {
   local value="$1"
   value="\${value//\\/\\\\}"
@@ -335,6 +352,10 @@ __sb_json_escape() {
 __sb_emit_json() {
   local encoded="$(printf '%s' "$1" | base64 | tr -d '\r\n' | tr '+/' '-_' | tr -d '=')"
   printf '\033]777;stackbridge;%s;%s\007' "$__sb_token" "$encoded"
+}
+
+__sb_print_context() {
+  printf '\033[2;38;5;111m╭─[ %s ]\033[0m\r\n' "$__sb_prompt_context"
 }
 
 docker() {
@@ -385,6 +406,7 @@ __sb_precmd() {
   fi
   typeset -g __sb_command_active=0
   __sb_emit_json "{\"type\":\"prompt\",\"cwd\":\"$cwd\",\"shell\":\"zsh\",\"user\":\"$user\"}"
+  __sb_print_context
 }
 
 add-zsh-hook preexec __sb_preexec

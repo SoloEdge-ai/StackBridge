@@ -9,6 +9,7 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 - 本地 Windows 使用 PowerShell/ConPTY；SSH 和 Docker 标签使用真实交互 PTY。
 - 临时 PowerShell/Bash/Zsh 集成提供命令边界、cwd、退出状态和环境层级，不修改用户永久 Shell 配置。
 - 页面刷新重新附着 Core 中的 PTY 并回放有界输出；多页面使用单写者租约。
+- 终端区域右键可创建横向（左右）或纵向（上下）分栏；每个窗格拥有独立 TerminalSession/PTY。受管 SSH/Docker 分栏复制连接配置并重新核验；每个窗格自己的紧凑状态线持续显示环境链、cwd 和 Shell，PowerShell/Bash/Zsh 每次提示符前也回显链路，状态栏和 AI 上下文跟随聚焦窗格。
 - 关闭终端标签会显式终止 PTY，并释放关联的本地/远端会话容量；普通刷新不会触发关闭。
 - Codex App Server 使用独立 `CODEX_HOME` 与系统 keyring；一个连续对话对应一个 Codex thread。
 - 每次提问冻结终端、环境、binding、cwd、Shell、context/input 版本；跨环境历史写入同一对话时间线。
@@ -63,6 +64,7 @@ Docker: context=default, container=stackbridge-m0b1-ubuntu22,
 
 ## 明确剩余边界
 
+- 从旧 `stackbridge.terminalTabs.v2` 会话存储迁移的已打开远端标签没有保存原连接参数，因此该标签第一次分栏会明确创建本地 PowerShell；用“新建连接”重新打开一次后进入 v3 存储，后续刷新与分栏即可复制并重新核验同一 SSH/Docker 目标。
 - Go runtime 仍是协议 2 的安装、身份和结构化执行通道。当前远端 PTY由 Core 的 OpenSSH 进程持有；协议 3 supervisor、PTY 分帧和 SSH 短断线/Core 重启重附着未实现。
 - 手输普通交互式 `ssh host` 会把当前 PTY 的会话专用集成同步到远端 `~/.sbridge/shell`；远端 `docker exec -it` 的进入/退出会产生未核验环境事件。带远端命令的 SSH、嵌套 SSH 和绕过包装器的连接仍降级；完整自动执行能力只对“新建连接”创建的受管标签开放。
 - Shell 随机标记不是针对同 UID 恶意进程的强认证通道；受限命名管道/Unix socket 仍待后续安全加固，runtime binding 不依赖该标记授权。

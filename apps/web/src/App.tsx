@@ -19,16 +19,46 @@ import {
   type OperationSnapshot,
 } from "@stackbridge/protocol";
 
-const tabsStorageKey = "stackbridge.terminalTabs.v2";
+const tabsStorageKey = "stackbridge.terminalTabs.v3";
+const legacyTabsStorageKey = "stackbridge.terminalTabs.v2";
 const shortcutStorageKey = "stackbridge.aiShortcut";
 
 type AuthState = "checking" | "unavailable" | "authenticated";
 type ConnectionState = "connecting" | "running" | "exited" | "unavailable";
+type TerminalKind = "local" | "ssh" | "docker";
+type SplitDirection = "horizontal" | "vertical";
+
+interface TerminalPaneItem {
+  id: string;
+  title: string;
+  kind: TerminalKind;
+  createRequest: Record<string, unknown>;
+}
+
+type PaneLayout =
+  | { type: "pane"; pane: TerminalPaneItem }
+  | { type: "split"; direction: SplitDirection; first: PaneLayout; second: PaneLayout };
 
 interface TerminalTab {
   id: string;
   title: string;
-  kind: "local" | "ssh" | "docker";
+  kind: TerminalKind;
+  layout: PaneLayout;
+  activePaneId: string;
+}
+
+interface PaneRuntimeState {
+  context?: TerminalContext;
+  connectionState: ConnectionState;
+  writable: boolean;
+  detail: string;
+}
+
+interface SplitMenuState {
+  tabId: string;
+  paneId: string;
+  x: number;
+  y: number;
 }
 
 interface TerminalEnvironment {
@@ -102,10 +132,9 @@ export function App() {
 function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void }) {
   const [tabs, setTabs] = useState<TerminalTab[]>(readStoredTabs);
   const [activeId, setActiveId] = useState(() => readStoredTabs()[0]?.id ?? "");
-  const [context, setContext] = useState<TerminalContext>();
-  const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
-  const [writable, setWritable] = useState(false);
-  const [detail, setDetail] = useState("正在创建终端");
+  const [paneRuntime, setPaneRuntime] = useState<Record<string, PaneRuntimeState>>({});
+  const [splitMenu, setSplitMenu] = useState<SplitMenuState>();
+  const [workspaceError, setWorkspaceError] = useState<string>();
   const [aiOpen, setAiOpen] = useState(true);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -119,7 +148,11 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     sessionStorage.setItem(tabsStorageKey, JSON.stringify(next));
   }, []);
 
-  const addTerminal = useCallback(async (body: Record<string, unknown>, title: string, kind: TerminalTab["kind"]) => {
+  const createTerminalSession = useCallback(async (
+    body: Record<string, unknown>,
+    title: string,
+    kind: TerminalKind,
+  ): Promise<TerminalPaneItem> => {
     const response = await fetch("/v1/terminal-sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -135,21 +168,35 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     }
     if (!response.ok) throw new Error(apiError(payload, "无法创建终端"));
     const parsed = terminalSessionSnapshotSchema.parse(payload);
-    const tab = { id: parsed.id, title, kind };
+    return {
+      id: parsed.id,
+      title,
+      kind,
+      createRequest: reusableTerminalRequest(body),
+    };
+  }, [onAuthenticationLost]);
+
+  const addTerminal = useCallback(async (body: Record<string, unknown>, title: string, kind: TerminalKind) => {
+    const pane = await createTerminalSession(body, title, kind);
+    const tab: TerminalTab = {
+      id: pane.id,
+      title,
+      kind,
+      layout: paneLayout(pane),
+      activePaneId: pane.id,
+    };
     const next = [...tabs, tab];
     persistTabs(next);
-    setContext(undefined);
-    setConnectionState("connecting");
-    setWritable(false);
+    setWorkspaceError(undefined);
     setActiveId(tab.id);
     return tab;
-  }, [onAuthenticationLost, persistTabs, tabs]);
+  }, [createTerminalSession, persistTabs, tabs]);
 
   useEffect(() => {
     if (tabs.length > 0 || creatingInitial.current) return;
     creatingInitial.current = true;
     void addTerminal({ cols: 120, rows: 32, kind: "local" }, "PowerShell", "local")
-      .catch((reason) => setDetail(errorMessage(reason)))
+      .catch((reason) => setWorkspaceError(errorMessage(reason)))
       .finally(() => {
         creatingInitial.current = false;
       });
@@ -163,6 +210,10 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
         setAiOpen((open) => !open);
         return;
       }
+      if (event.key === "Escape" && splitMenu) {
+        setSplitMenu(undefined);
+        return;
+      }
       if (event.key === "Escape" && aiOpen) {
         setAiOpen(false);
         window.dispatchEvent(new Event("stackbridge:terminal-focus"));
@@ -170,53 +221,245 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [aiOpen, shortcut]);
+  }, [aiOpen, shortcut, splitMenu]);
 
-  const removeUnavailable = useCallback((id: string) => {
-    const next = tabs.filter((tab) => tab.id !== id);
-    persistTabs(next);
-    if (activeId === id) setActiveId(next[0]?.id ?? "");
-  }, [activeId, persistTabs, tabs]);
+  useEffect(() => {
+    if (!splitMenu) return;
+    const close = () => setSplitMenu(undefined);
+    window.addEventListener("click", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [splitMenu]);
 
-  const handleTerminalState = useCallback((state: ConnectionState, canWrite: boolean, message: string) => {
-    setConnectionState(state);
-    setWritable(canWrite);
-    setDetail(message);
+  const handleTerminalContext = useCallback((sessionId: string, context: TerminalContext) => {
+    setPaneRuntime((current) => ({
+      ...current,
+      [sessionId]: {
+        ...(current[sessionId] ?? connectingRuntime()),
+        context,
+      },
+    }));
   }, []);
 
-  const handleActiveTerminalUnavailable = useCallback(() => {
-    if (activeId) removeUnavailable(activeId);
-  }, [activeId, removeUnavailable]);
+  const handleTerminalState = useCallback((
+    sessionId: string,
+    state: ConnectionState,
+    canWrite: boolean,
+    message: string,
+  ) => {
+    setPaneRuntime((current) => ({
+      ...current,
+      [sessionId]: {
+        ...(current[sessionId] ?? connectingRuntime()),
+        connectionState: state,
+        writable: canWrite,
+        detail: message,
+      },
+    }));
+  }, []);
 
   const selectTerminal = useCallback((id: string) => {
     if (id === activeId) return;
-    setContext(undefined);
-    setConnectionState("connecting");
-    setWritable(false);
-    setDetail("正在附着终端");
+    setWorkspaceError(undefined);
+    setSplitMenu(undefined);
     setActiveId(id);
   }, [activeId]);
 
-  const closeTerminal = useCallback(async (id: string) => {
-    const response = await fetch(`/v1/terminal-sessions/${id}`, { method: "DELETE" });
+  const activatePane = useCallback((tabId: string, paneId: string) => {
+    const next = tabs.map((tab) => tab.id === tabId && tab.activePaneId !== paneId
+      ? { ...tab, activePaneId: paneId }
+      : tab);
+    if (next.some((tab, index) => tab !== tabs[index])) persistTabs(next);
+    if (activeId !== tabId) setActiveId(tabId);
+    setWorkspaceError(undefined);
+  }, [activeId, persistTabs, tabs]);
+
+  const closePane = useCallback(async (tabId: string, paneId: string) => {
+    const response = await fetch(`/v1/terminal-sessions/${paneId}`, { method: "DELETE" });
     if (!response.ok && response.status !== 404) {
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-      setDetail(apiError(payload, "无法关闭终端"));
+      setWorkspaceError(apiError(payload, "无法关闭终端"));
       return;
     }
-    const index = tabs.findIndex((tab) => tab.id === id);
-    const next = tabs.filter((tab) => tab.id !== id);
+    const tabIndex = tabs.findIndex((tab) => tab.id === tabId);
+    const tab = tabs[tabIndex];
+    if (!tab) return;
+    const layout = removePane(tab.layout, paneId);
+    const next = layout
+      ? tabs.map((item) => item.id === tabId
+        ? {
+            ...item,
+            layout,
+            activePaneId: item.activePaneId === paneId
+              ? flattenPanes(layout)[0]!.id
+              : item.activePaneId,
+          }
+        : item)
+      : tabs.filter((item) => item.id !== tabId);
     persistTabs(next);
-    if (activeId === id) {
-      setContext(undefined);
-      setConnectionState("connecting");
-      setWritable(false);
+    setPaneRuntime((current) => {
+      const updated = { ...current };
+      delete updated[paneId];
+      return updated;
+    });
+    if (!layout && activeId === tabId) {
+      setActiveId(next[Math.min(Math.max(tabIndex, 0), next.length - 1)]?.id ?? "");
+    }
+  }, [activeId, persistTabs, tabs]);
+
+  const closeTerminal = useCallback(async (tabId: string) => {
+    const tab = tabs.find((item) => item.id === tabId);
+    if (!tab) return;
+    const paneIds = flattenPanes(tab.layout).map((pane) => pane.id);
+    const responses = await Promise.all(paneIds.map((paneId) =>
+      fetch(`/v1/terminal-sessions/${paneId}`, { method: "DELETE" })));
+    const failed = responses.find((response) => !response.ok && response.status !== 404);
+    if (failed) {
+      const payload = await failed.json().catch(() => ({})) as Record<string, unknown>;
+      setWorkspaceError(apiError(payload, "无法关闭终端"));
+      return;
+    }
+    const index = tabs.findIndex((item) => item.id === tabId);
+    const next = tabs.filter((item) => item.id !== tabId);
+    persistTabs(next);
+    setPaneRuntime((current) => {
+      const updated = { ...current };
+      for (const paneId of paneIds) delete updated[paneId];
+      return updated;
+    });
+    if (activeId === tabId) {
       setActiveId(next[Math.min(Math.max(index, 0), next.length - 1)]?.id ?? "");
     }
   }, [activeId, persistTabs, tabs]);
 
+  const splitTerminal = useCallback(async (
+    target: SplitMenuState,
+    direction: SplitDirection,
+  ) => {
+    setSplitMenu(undefined);
+    setWorkspaceError(undefined);
+    try {
+      const sourceTab = tabs.find((tab) => tab.id === target.tabId);
+      const sourcePane = sourceTab ? findPane(sourceTab.layout, target.paneId) : undefined;
+      const sourceRequest = sourcePane?.createRequest ?? { cols: 100, rows: 28, kind: "local" };
+      const sourceKind = isTerminalKind(sourceRequest.kind) ? sourceRequest.kind : "local";
+      const pane = await createTerminalSession(
+        { ...sourceRequest, cols: 100, rows: 28 },
+        sourceKind === "local" ? "PowerShell" : sourcePane?.title ?? sourceKind.toUpperCase(),
+        sourceKind,
+      );
+      const next = tabs.map((tab) => tab.id === target.tabId
+        ? {
+            ...tab,
+            layout: splitPane(tab.layout, target.paneId, pane, direction),
+            activePaneId: pane.id,
+          }
+        : tab);
+      persistTabs(next);
+      setActiveId(target.tabId);
+    } catch (reason) {
+      setWorkspaceError(errorMessage(reason));
+    }
+  }, [createTerminalSession, persistTabs, tabs]);
+
   const activeTab = tabs.find((tab) => tab.id === activeId);
-  const breadcrumb = context?.environmentStack.map((item) => item.label).join(" → ") ?? "正在识别环境";
+  const activePane = activeTab
+    ? findPane(activeTab.layout, activeTab.activePaneId) ?? flattenPanes(activeTab.layout)[0]
+    : undefined;
+  const activeRuntime = activePane
+    ? paneRuntime[activePane.id] ?? connectingRuntime()
+    : connectingRuntime("正在创建终端");
+  const context = activeRuntime.context;
+  const writable = activeRuntime.writable;
+  const detail = workspaceError ?? activeRuntime.detail;
+  const activePaneCount = activeTab ? flattenPanes(activeTab.layout).length : 0;
+  const splitSource = splitMenu
+    ? tabs.find((tab) => tab.id === splitMenu.tabId)?.layout
+    : undefined;
+  const splitSourcePane = splitMenu && splitSource
+    ? findPane(splitSource, splitMenu.paneId)
+    : undefined;
+  const splitRequestKind = isTerminalKind(splitSourcePane?.createRequest.kind)
+    ? splitSourcePane.createRequest.kind
+    : "local";
+  const splitTargetDescription = splitRequestKind === "docker"
+    ? "同一 Docker 目标 · 重新核验"
+    : splitRequestKind === "ssh"
+      ? "同一 SSH 目标 · 重新核验"
+      : "新 PowerShell";
+
+  const renderLayout = (layout: PaneLayout, tab: TerminalTab): ReactNode => {
+    if (layout.type === "split") {
+      return (
+        <div className={`terminal-split ${layout.direction}`}>
+          {renderLayout(layout.first, tab)}
+          {renderLayout(layout.second, tab)}
+        </div>
+      );
+    }
+    const pane = layout.pane;
+    const isActive = pane.id === tab.activePaneId;
+    const runtime = paneRuntime[pane.id] ?? connectingRuntime();
+    const paneContext = runtime.context;
+    const paneBreadcrumb = paneContext?.environmentStack.map((item) => item.label).join(" → ") ?? "正在识别环境";
+    return (
+      <section
+        key={pane.id}
+        className={`terminal-pane-shell ${isActive ? "active" : ""}`}
+        role="group"
+        aria-label="终端窗格"
+        onPointerDownCapture={() => activatePane(tab.id, pane.id)}
+        onFocusCapture={() => activatePane(tab.id, pane.id)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          activatePane(tab.id, pane.id);
+          setSplitMenu({
+            tabId: tab.id,
+            paneId: pane.id,
+            x: Math.min(event.clientX, window.innerWidth - 224),
+            y: Math.min(event.clientY, window.innerHeight - 116),
+          });
+        }}
+      >
+        <header className="terminal-pane-context">
+          <div className="environment-main">
+            <span className={`status-dot ${runtime.connectionState}`} />
+            <strong title={paneBreadcrumb}>{paneBreadcrumb}</strong>
+            {paneContext === undefined
+              ? <span className="detecting-pill" title="正在识别环境">…</span>
+              : paneContext.environment.verified
+                ? <span className="verified-pill" title="环境已核验">✓</span>
+                : <span className="warning-pill" title="环境未核验">!</span>}
+          </div>
+          <div className="environment-meta">
+            <code title={paneContext?.cwd}>{paneContext?.cwd || "—"}</code>
+            <span>{paneContext?.shell || "—"}</span>
+          </div>
+          {activePaneCount > 1 ? (
+            <button
+              className="terminal-pane-close"
+              aria-label={`关闭 ${pane.title} 分栏`}
+              title="关闭这个分栏"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={() => void closePane(tab.id, pane.id)}
+            >×</button>
+          ) : null}
+        </header>
+        <TerminalPane
+          sessionId={pane.id}
+          active={isActive}
+          onContext={handleTerminalContext}
+          onState={handleTerminalState}
+          onUnavailable={() => void closePane(tab.id, pane.id)}
+        />
+      </section>
+    );
+  };
 
   return (
     <main className={`workbench ${aiOpen ? "with-ai" : ""}`}>
@@ -248,7 +491,11 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
                 <button className="terminal-tab" onClick={() => selectTerminal(tab.id)}>
                   <span className={`tab-dot ${tab.kind}`} />
                   <span>{tab.title}</span>
-                  {tab.id === activeId ? <small>{tab.kind === "local" ? "LOCAL" : tab.kind.toUpperCase()}</small> : null}
+                  {tab.id === activeId ? (
+                    <small>{flattenPanes(tab.layout).length > 1
+                      ? `${flattenPanes(tab.layout).length} PANES`
+                      : tab.kind === "local" ? "LOCAL" : tab.kind.toUpperCase()}</small>
+                  ) : null}
                 </button>
                 <button
                   className="terminal-tab-close"
@@ -262,47 +509,21 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
           </div>
         </header>
 
-        <section className="environment-bar">
-          <div className="environment-main">
-            <span className={`status-dot ${connectionState}`} />
-            <div className="environment-copy">
-              <span>ACTIVE CONTEXT</span>
-              <strong>{breadcrumb}</strong>
-            </div>
-            {context === undefined
-              ? <span className="detecting-pill">识别中</span>
-              : context.environment.verified
-                ? <span className="verified-pill">已核验</span>
-                : <span className="warning-pill">环境未核验</span>}
-          </div>
-          <div className="environment-meta">
-            <span><small>PATH</small><code>{context?.cwd || "—"}</code></span>
-            <span><small>SHELL</small><code>{context?.shell || "—"}</code></span>
-            <span className="shell-state">{context?.shellState === "idle" ? "READY" : context?.shellState === "running" ? "RUNNING" : "DETECTING"}</span>
-          </div>
-        </section>
-
         <section className="terminal-area">
           {activeTab ? (
-            <TerminalPane
-              key={activeTab.id}
-              sessionId={activeTab.id}
-              onContext={setContext}
-              onState={handleTerminalState}
-              onUnavailable={handleActiveTerminalUnavailable}
-            />
+            <div className="terminal-layout">{renderLayout(activeTab.layout, activeTab)}</div>
           ) : <CenteredStatus message="正在准备终端…" />}
           <footer className="terminal-status">
             <span className={writable ? "writable" : ""}>{writable ? "● INPUT" : "○ READ ONLY"}</span>
             <span>{detail}</span>
-            <span>SESSION {activeTab ? activeTab.id.slice(0, 8).toUpperCase() : "—"}</span>
+            <span>SESSION {activePane ? activePane.id.slice(0, 8).toUpperCase() : "—"}</span>
           </footer>
         </section>
       </section>
 
-      {aiOpen && activeTab ? (
+      {aiOpen && activePane ? (
         <AssistantPanel
-          terminalId={activeTab.id}
+          terminalId={activePane.id}
           context={context}
           shortcut={shortcut}
           onClose={() => {
@@ -310,6 +531,33 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
             window.dispatchEvent(new Event("stackbridge:terminal-focus"));
           }}
         />
+      ) : null}
+
+      {splitMenu ? (
+        <div
+          className="terminal-context-menu"
+          role="menu"
+          aria-label="终端分栏"
+          style={{ left: splitMenu.x, top: splitMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            role="menuitem"
+            aria-label="横向分栏（左右排列）"
+            onClick={() => void splitTerminal(splitMenu, "horizontal")}
+          >
+            <span className="split-menu-icon horizontal" aria-hidden="true"><i /><i /></span>
+            <span><strong>横向分栏</strong><small>左右排列 · {splitTargetDescription}</small></span>
+          </button>
+          <button
+            role="menuitem"
+            aria-label="纵向分栏（上下排列）"
+            onClick={() => void splitTerminal(splitMenu, "vertical")}
+          >
+            <span className="split-menu-icon vertical" aria-hidden="true"><i /><i /></span>
+            <span><strong>纵向分栏</strong><small>上下排列 · {splitTargetDescription}</small></span>
+          </button>
+        </div>
       ) : null}
 
       {connectionOpen ? (
@@ -351,16 +599,35 @@ function AppIcon({ name }: { name: "terminal" | "connection" | "spark" | "settin
 
 function TerminalPane({
   sessionId,
+  active,
   onContext,
   onState,
   onUnavailable,
 }: {
   sessionId: string;
-  onContext(context: TerminalContext): void;
-  onState(state: ConnectionState, writable: boolean, detail: string): void;
+  active: boolean;
+  onContext(sessionId: string, context: TerminalContext): void;
+  onState(sessionId: string, state: ConnectionState, writable: boolean, detail: string): void;
   onUnavailable(): void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const terminalRef = useRef<Terminal | undefined>(undefined);
+  const activeRef = useRef(active);
+  const onContextRef = useRef(onContext);
+  const onStateRef = useRef(onState);
+  const onUnavailableRef = useRef(onUnavailable);
+
+  useEffect(() => {
+    onContextRef.current = onContext;
+    onStateRef.current = onState;
+    onUnavailableRef.current = onUnavailable;
+  }, [onContext, onState, onUnavailable]);
+
+  useEffect(() => {
+    activeRef.current = active;
+    if (active) terminalRef.current?.focus();
+  }, [active]);
+
   useEffect(() => {
     const host = hostRef.current;
     if (host === null) return;
@@ -399,12 +666,14 @@ function TerminalPane({
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    terminalRef.current = terminal;
     fit.fit();
-    terminal.focus();
+    if (activeRef.current) terminal.focus();
     let disposed = false;
     let socket: WebSocket | undefined;
     let canWrite = false;
     let replaying = false;
+    let unavailableReported = false;
     let poll: number | undefined;
 
     const dataSubscription = terminal.onData((data) => {
@@ -419,7 +688,9 @@ function TerminalPane({
       }
     });
     resizeObserver.observe(host);
-    const focus = () => terminal.focus();
+    const focus = () => {
+      if (activeRef.current) terminal.focus();
+    };
     window.addEventListener("stackbridge:terminal-focus", focus);
 
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -431,10 +702,10 @@ function TerminalPane({
         const finishReplay = () => {
           replaying = false;
           canWrite = decoded.writable;
-          onState(decoded.state, decoded.writable, decoded.state === "running" ? "已连接真实 PTY" : "Shell 已退出");
+          onStateRef.current(sessionId, decoded.state, decoded.writable, decoded.state === "running" ? "已连接真实 PTY" : "Shell 已退出");
           if (decoded.writable) {
             socket?.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
-            terminal.focus();
+            if (activeRef.current) terminal.focus();
           }
         };
         if (decoded.replay) {
@@ -445,27 +716,30 @@ function TerminalPane({
       } else if (decoded.type === "output") terminal.write(decoded.data);
       else if (decoded.type === "writable") {
         canWrite = decoded.writable;
-        onState("running", canWrite, canWrite ? "当前页面持有写入租约" : "另一页面持有写入租约");
+        onStateRef.current(sessionId, "running", canWrite, canWrite ? "当前页面持有写入租约" : "另一页面持有写入租约");
       } else if (decoded.type === "exit") {
         canWrite = false;
-        onState("exited", false, `Shell 已退出 (${decoded.exitCode})`);
+        onStateRef.current(sessionId, "exited", false, `Shell 已退出 (${decoded.exitCode})`);
       } else terminal.writeln(`\r\n[StackBridge] ${decoded.message}`);
     });
     socket.addEventListener("close", (event) => {
       if (disposed) return;
       canWrite = false;
-      if (event.code === 1006) onState("unavailable", false, "与 Core 的连接中断");
+      if (event.code === 1006) onStateRef.current(sessionId, "unavailable", false, "与 Core 的连接中断");
     });
-    socket.addEventListener("error", () => onState("unavailable", false, "终端连接失败"));
+    socket.addEventListener("error", () => onStateRef.current(sessionId, "unavailable", false, "终端连接失败"));
 
     const updateContext = async () => {
       try {
         const response = await fetch(`/v1/terminal-sessions/${sessionId}/context`, { cache: "no-store" });
         if (response.status === 404) {
-          onUnavailable();
+          if (!unavailableReported) {
+            unavailableReported = true;
+            onUnavailableRef.current();
+          }
           return;
         }
-        if (response.ok) onContext(await response.json() as TerminalContext);
+        if (response.ok) onContextRef.current(sessionId, await response.json() as TerminalContext);
       } catch {}
     };
     void updateContext();
@@ -479,8 +753,9 @@ function TerminalPane({
       dataSubscription.dispose();
       socket?.close();
       terminal.dispose();
+      terminalRef.current = undefined;
     };
-  }, [onContext, onState, onUnavailable, sessionId]);
+  }, [sessionId]);
   return <div className="terminal-host" ref={hostRef} />;
 }
 
@@ -921,14 +1196,141 @@ function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : "发生未知错误";
 }
 
+function paneLayout(pane: TerminalPaneItem): PaneLayout {
+  return { type: "pane", pane };
+}
+
+function reusableTerminalRequest(body: Record<string, unknown>): Record<string, unknown> {
+  const { deploymentApprovalId: _deploymentApprovalId, ...request } = body;
+  return request;
+}
+
+function flattenPanes(layout: PaneLayout): TerminalPaneItem[] {
+  return layout.type === "pane"
+    ? [layout.pane]
+    : [...flattenPanes(layout.first), ...flattenPanes(layout.second)];
+}
+
+function findPane(layout: PaneLayout, paneId: string): TerminalPaneItem | undefined {
+  if (layout.type === "pane") return layout.pane.id === paneId ? layout.pane : undefined;
+  return findPane(layout.first, paneId) ?? findPane(layout.second, paneId);
+}
+
+function splitPane(
+  layout: PaneLayout,
+  paneId: string,
+  pane: TerminalPaneItem,
+  direction: SplitDirection,
+): PaneLayout {
+  if (layout.type === "pane") {
+    return layout.pane.id === paneId
+      ? { type: "split", direction, first: layout, second: paneLayout(pane) }
+      : layout;
+  }
+  if (findPane(layout.first, paneId)) {
+    return { ...layout, first: splitPane(layout.first, paneId, pane, direction) };
+  }
+  return { ...layout, second: splitPane(layout.second, paneId, pane, direction) };
+}
+
+function removePane(layout: PaneLayout, paneId: string): PaneLayout | undefined {
+  if (layout.type === "pane") return layout.pane.id === paneId ? undefined : layout;
+  const first = removePane(layout.first, paneId);
+  const second = removePane(layout.second, paneId);
+  if (!first) return second;
+  if (!second) return first;
+  return { ...layout, first, second };
+}
+
+function connectingRuntime(detail = "正在附着终端"): PaneRuntimeState {
+  return { connectionState: "connecting", writable: false, detail };
+}
+
 function readStoredTabs(): TerminalTab[] {
   try {
-    const value = JSON.parse(sessionStorage.getItem(tabsStorageKey) ?? "[]") as unknown;
-    if (!Array.isArray(value)) return [];
-    return value.filter((item): item is TerminalTab => !!item && typeof item === "object" && typeof (item as TerminalTab).id === "string");
+    const stored = parseStoredTabs(sessionStorage.getItem(tabsStorageKey));
+    if (stored.length > 0) return stored;
+
+    const legacyValue = JSON.parse(sessionStorage.getItem(legacyTabsStorageKey) ?? "[]") as unknown;
+    if (!Array.isArray(legacyValue)) return [];
+    const migrated = legacyValue.flatMap((item): TerminalTab[] => {
+      if (!isRecord(item) || typeof item.id !== "string" || typeof item.title !== "string") return [];
+      if (!isTerminalKind(item.kind)) return [];
+      const pane: TerminalPaneItem = {
+        id: item.id,
+        title: item.title,
+        kind: item.kind,
+        createRequest: { kind: "local", cols: 120, rows: 32 },
+      };
+      return [{
+        id: item.id,
+        title: item.title,
+        kind: item.kind,
+        layout: paneLayout(pane),
+        activePaneId: pane.id,
+      }];
+    });
+    if (migrated.length > 0) {
+      sessionStorage.setItem(tabsStorageKey, JSON.stringify(migrated));
+      sessionStorage.removeItem(legacyTabsStorageKey);
+    }
+    return migrated;
   } catch {
     return [];
   }
+}
+
+function parseStoredTabs(raw: string | null): TerminalTab[] {
+  if (raw === null) return [];
+  const value = JSON.parse(raw) as unknown;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item): TerminalTab[] => {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.title !== "string") return [];
+    if (!isTerminalKind(item.kind) || typeof item.activePaneId !== "string") return [];
+    const layout = parsePaneLayout(item.layout, 0);
+    if (!layout) return [];
+    const activePaneId = findPane(layout, item.activePaneId)?.id ?? flattenPanes(layout)[0]?.id;
+    if (!activePaneId) return [];
+    return [{
+      id: item.id,
+      title: item.title,
+      kind: item.kind,
+      layout,
+      activePaneId,
+    }];
+  });
+}
+
+function parsePaneLayout(value: unknown, depth: number): PaneLayout | undefined {
+  if (depth > 32 || !isRecord(value)) return undefined;
+  if (value.type === "pane" && isRecord(value.pane)) {
+    const pane = value.pane;
+    if (typeof pane.id !== "string" || typeof pane.title !== "string" || !isTerminalKind(pane.kind)) {
+      return undefined;
+    }
+    return paneLayout({
+      id: pane.id,
+      title: pane.title,
+      kind: pane.kind,
+      createRequest: isRecord(pane.createRequest)
+        ? reusableTerminalRequest(pane.createRequest)
+        : { kind: "local", cols: 120, rows: 32 },
+    });
+  }
+  if (value.type !== "split" || (value.direction !== "horizontal" && value.direction !== "vertical")) {
+    return undefined;
+  }
+  const first = parsePaneLayout(value.first, depth + 1);
+  const second = parsePaneLayout(value.second, depth + 1);
+  return first && second ? { type: "split", direction: value.direction, first, second } : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
+}
+
+function isTerminalKind(value: unknown): value is TerminalKind {
+  return value === "local" || value === "ssh" || value === "docker";
 }
 
 function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {

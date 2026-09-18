@@ -51,7 +51,7 @@ Core 最多同时持有 16 个终端会话；达到上限时先淘汰已退出�
 
 ### `DELETE /v1/terminal-sessions/:id`
 
-显式关闭终端标签对应的 PTY，断开其 WebSocket，并释放本地会话容量。SSH/Docker 终端还会关闭关联的 runtime 管理连接。普通页面刷新不会调用此接口，因此仍可重新附着原终端。
+显式关闭终端窗格对应的 PTY，断开其 WebSocket，并释放本地会话容量；关闭工作区标签时对其全部窗格逐一调用。SSH/Docker 终端还会关闭关联的 runtime 管理连接。普通页面刷新不会调用此接口，因此仍可重新附着原终端。
 
 ## WebSocket
 

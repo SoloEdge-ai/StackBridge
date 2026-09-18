@@ -20,6 +20,8 @@ describe("session-only shell integration", () => {
     expect(script).toContain("$HOME/.sbridge/shell/bashrc");
     expect(script).toContain("$HOME/.sbridge/shell/.zshrc");
     expect(script).toContain("exec zsh -i");
+    expect(script).toContain("$([char]0x256D)$([char]0x2500)[ $script:StackBridgeContext ]");
+    expect(script).toContain("STACKBRIDGE_CONTEXT_B64");
   });
 
   it.each([
@@ -31,6 +33,8 @@ describe("session-only shell integration", () => {
     expect(script).toContain("Docker: $selector_json");
     expect(script).toContain("command docker");
     expect(script).toContain("environmentPop");
+    expect(script).toContain("__sb_print_context");
+    expect(script).toContain("╭─[ %s ]");
   });
 
   it("writes private remote shell templates beside the PowerShell integration", () => {

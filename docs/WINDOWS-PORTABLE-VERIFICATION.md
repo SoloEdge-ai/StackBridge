@@ -6,8 +6,8 @@
 
 - 文件：`release/StackBridge-Portable-x64.exe`
 - 架构：Windows x64
-- 大小：150,980,578 bytes（144.0 MiB）
-- SHA-256：`06B0C42B1FAFD348BC2AD13237249BE1FF4648A79B367752A670EAFFFC02BD06`
+- 大小：150,981,043 bytes（144.0 MiB）
+- SHA-256：`9D43E342F35E57C4E5226CB1020C4AF509E84E2834D740629B5FE2885696FBE6`
 - 签名状态：未签名
 
 `release/` 是本地构建输出并被 Git 忽略，不提交二进制。使用 `pnpm desktop:portable` 可从已锁定依赖重新生成。
@@ -27,6 +27,7 @@
 9. 从 EXE 的 Core 建立 `friden@friden-dev-cube` 核验 SSH PTY，执行命令并收到 `PORTABLE_SSH_OK`。
 10. 从 EXE 的 Core 建立 `stackbridge-m0b1-ubuntu22` 完整容器 binding，执行命令并收到 `PORTABLE_DOCKER_OK`。
 11. 打包后的 Web 产物确认只有一组“新建连接 / AI 助手”入口，且已移除 `Workspace / StackBridge` 品牌块；Electron 使用隐藏标题栏和原生窗口控制 overlay。
+12. 从本次 EXE 本体启动随机回环 Core，确认生产 Web bundle 包含右键横向/纵向分栏与窗格内紧凑环境链；无需启动令牌即可创建并关闭真实本地 PowerShell/ConPTY 会话。
 
 ## 当前边界
 
