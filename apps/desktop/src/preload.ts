@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 
 const toggleQuickAskChannel = "stackbridge:toggle-quick-ask";
 const setQuickAskShortcutChannel = "stackbridge:set-quick-ask-shortcut";
+const setCompositionActiveChannel = "stackbridge:set-composition-active";
 
 contextBridge.exposeInMainWorld("stackBridgeDesktop", {
   onToggleQuickAsk(callback: () => void): () => void {
@@ -11,5 +12,8 @@ contextBridge.exposeInMainWorld("stackBridgeDesktop", {
   },
   setQuickAskShortcut(shortcut: string): void {
     ipcRenderer.send(setQuickAskShortcutChannel, shortcut);
+  },
+  setCompositionActive(active: boolean): void {
+    ipcRenderer.send(setCompositionActiveChannel, active);
   },
 });

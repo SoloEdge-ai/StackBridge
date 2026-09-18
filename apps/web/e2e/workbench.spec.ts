@@ -131,7 +131,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   );
   await terminalInput.press("Enter");
   await expect(page.locator(".terminal-host .xterm-rows")).toContainText("FOLLOW_1");
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   const followingAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(followingAssistant).toBeVisible();
   const followingStartBox = await followingAssistant.boundingBox();
@@ -149,7 +149,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   const terminalCursor = page.locator(".terminal-pane-shell.active .xterm-cursor");
   await expect.poll(() => terminalCursor.count()).toBeGreaterThan(0);
   const cursorBoxBeforeQuickAsk = await terminalCursor.boundingBox();
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(inlineAssistant).toBeVisible();
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
@@ -192,9 +192,9 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   await expect(page.locator(".assistant-panel")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(terminalInput).toBeFocused();
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   await expect(inlineAssistant).toBeVisible();
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   await expect(inlineAssistant).toHaveCount(0);
   await expect(terminalInput).toBeFocused();
   await terminalInput.pressSequentially("PRESERVED'", { delay: 8 });
@@ -219,7 +219,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   }).toBe(true);
   const terminalBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
   const cursorBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   await expect(inlineAssistant).toHaveAttribute("data-placement", "above");
   const terminalBoxWithFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
   const flippedQuickAskBox = await inlineAssistant.boundingBox();
@@ -238,7 +238,7 @@ test("asks the real Codex account from the active terminal pane", async ({ page 
   await page.goto("/");
   await expect(page.locator(".terminal-pane-context")).toContainText("Local Windows");
 
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(inlineAssistant).toBeVisible();
   const prompt = inlineAssistant.locator("textarea");
@@ -273,6 +273,36 @@ test("opens Quick Ask when the desktop shell forwards its shortcut", async ({ pa
   await expect(page.locator(".terminal-pane-shell.active .inline-assistant textarea")).toBeFocused();
 });
 
+test("opens Quick Ask from the terminal ?? trigger without executing it", async ({ page }) => {
+  await page.goto("/");
+  const pane = page.locator(".terminal-pane-shell.active");
+  const terminalInput = pane.locator(".xterm-helper-textarea");
+  await expect(pane.locator(".terminal-pane-context")).toContainText("Local Windows");
+
+  await terminalInput.focus();
+  await terminalInput.pressSequentially("??", { delay: 40 });
+  await terminalInput.press("Enter");
+
+  await expect(pane.locator(".inline-assistant")).toBeVisible();
+  await expect(pane.locator(".inline-assistant textarea")).toBeFocused();
+  await expect(pane.locator(".xterm-rows")).not.toContainText("not recognized");
+});
+
+test("opens Quick Ask from the Chinese full-width ？？ trigger without executing it", async ({ page }) => {
+  await page.goto("/");
+  const pane = page.locator(".terminal-pane-shell.active");
+  const terminalInput = pane.locator(".xterm-helper-textarea");
+  await expect(pane.locator(".terminal-pane-context")).toContainText("Local Windows");
+
+  await terminalInput.focus();
+  await page.keyboard.insertText("？？");
+  await terminalInput.press("Enter");
+
+  await expect(pane.locator(".inline-assistant")).toBeVisible();
+  await expect(pane.locator(".inline-assistant textarea")).toBeFocused();
+  await expect(pane.locator(".xterm-rows")).not.toContainText("CommandNotFoundException");
+});
+
 test("offers AI actions beside the latest terminal output", async ({ page }) => {
   await page.goto("/");
   const pane = page.getByRole("group", { name: "Terminal pane" });
@@ -301,16 +331,16 @@ test("splits the active terminal horizontally from its context menu", async ({ p
   await expect(panes).toHaveCount(2);
 
   await panes.nth(0).locator(".xterm-helper-textarea").focus();
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   await panes.nth(0).locator(".inline-assistant textarea").fill("FIRST_PANE_DRAFT");
   await page.keyboard.press("Escape");
   await panes.nth(1).locator(".xterm-helper-textarea").focus();
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   await expect(panes.nth(1).locator(".inline-assistant textarea")).toHaveValue("");
   await panes.nth(1).locator(".inline-assistant textarea").fill("SECOND_PANE_DRAFT");
   await page.keyboard.press("Escape");
   await panes.nth(0).locator(".xterm-helper-textarea").focus();
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   await expect(panes.nth(0).locator(".inline-assistant textarea")).toHaveValue("FIRST_PANE_DRAFT");
   await page.keyboard.press("Escape");
 
@@ -329,7 +359,7 @@ test("splits the active terminal horizontally from its context menu", async ({ p
     "SPLIT_RIGHT_OK",
     { timeout: 10_000 },
   );
-  await page.keyboard.press("Control+Shift+Space");
+  await page.keyboard.press("F8");
   await expect(panes.nth(1).locator(".inline-assistant")).toBeVisible();
   await expect(panes.nth(0).locator(".inline-assistant")).toHaveCount(0);
   await page.keyboard.press("Escape");

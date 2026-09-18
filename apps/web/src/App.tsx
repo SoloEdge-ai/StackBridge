@@ -29,6 +29,7 @@ import {
   type MessageKey,
   useLanguage,
 } from "./i18n.js";
+import { TerminalQuickAskTrigger } from "./terminal-quick-ask-trigger.js";
 
 const tabsStorageKey = "stackbridge.terminalTabs.v3";
 const legacyTabsStorageKey = "stackbridge.terminalTabs.v2";
@@ -392,7 +393,15 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcut, setShortcut] = useState(
-    () => localStorage.getItem(shortcutStorageKey) ?? "Ctrl+Shift+Space",
+    () => {
+      const saved = localStorage.getItem(shortcutStorageKey);
+      return saved === null
+        || saved === "Ctrl+Shift+Space"
+        || saved === "Ctrl+Shift+A"
+        || saved === "Ctrl+Alt+A"
+        ? "F8"
+        : saved;
+    },
   );
   const creatingInitial = useRef(false);
   const paneElements = useRef(new Map<string, HTMLElement>());
@@ -480,6 +489,18 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       removeDesktopListener?.();
     };
   }, [shortcut, toggleQuickAsk]);
+
+  useEffect(() => {
+    const handleCompositionStart = () => window.stackBridgeDesktop?.setCompositionActive(true);
+    const handleCompositionEnd = () => window.stackBridgeDesktop?.setCompositionActive(false);
+    window.addEventListener("compositionstart", handleCompositionStart, true);
+    window.addEventListener("compositionend", handleCompositionEnd, true);
+    return () => {
+      window.removeEventListener("compositionstart", handleCompositionStart, true);
+      window.removeEventListener("compositionend", handleCompositionEnd, true);
+      window.stackBridgeDesktop?.setCompositionActive(false);
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -774,6 +795,10 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
           onContext={handleTerminalContext}
           onState={handleTerminalState}
           onCursorAnchor={handleCursorAnchor}
+          onQuickAsk={(sessionId) => {
+            activatePane(tab.id, sessionId);
+            setQuickAiPaneId(sessionId);
+          }}
           onUnavailable={() => void closePane(tab.id, pane.id)}
         />
         {quickAiPaneId === pane.id ? (
@@ -1194,6 +1219,7 @@ function TerminalPane({
   onContext,
   onState,
   onCursorAnchor,
+  onQuickAsk,
   onUnavailable,
 }: {
   sessionId: string;
@@ -1201,6 +1227,7 @@ function TerminalPane({
   onContext(sessionId: string, context: TerminalContext): void;
   onState(sessionId: string, state: ConnectionState, writable: boolean, detail: string): void;
   onCursorAnchor(sessionId: string, anchor: TerminalCursorAnchor | undefined): void;
+  onQuickAsk(sessionId: string): void;
   onUnavailable(): void;
 }) {
   const { t } = useLanguage();
@@ -1210,6 +1237,7 @@ function TerminalPane({
   const onContextRef = useRef(onContext);
   const onStateRef = useRef(onState);
   const onCursorAnchorRef = useRef(onCursorAnchor);
+  const onQuickAskRef = useRef(onQuickAsk);
   const onUnavailableRef = useRef(onUnavailable);
   const tRef = useRef(t);
 
@@ -1217,9 +1245,10 @@ function TerminalPane({
     onContextRef.current = onContext;
     onStateRef.current = onState;
     onCursorAnchorRef.current = onCursorAnchor;
+    onQuickAskRef.current = onQuickAsk;
     onUnavailableRef.current = onUnavailable;
     tRef.current = t;
-  }, [onContext, onCursorAnchor, onState, onUnavailable, t]);
+  }, [onContext, onCursorAnchor, onQuickAsk, onState, onUnavailable, t]);
 
   useEffect(() => {
     activeRef.current = active;
@@ -1274,10 +1303,16 @@ function TerminalPane({
     let replaying = false;
     let unavailableReported = false;
     let poll: number | undefined;
+    const quickAskTrigger = new TerminalQuickAskTrigger();
 
     const dataSubscription = terminal.onData((data) => {
-      if (canWrite && !replaying && socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "input", data }));
+      if (!canWrite || replaying || socket?.readyState !== WebSocket.OPEN) return;
+      for (const action of quickAskTrigger.consume(data)) {
+        if (action.type === "quickAsk") {
+          onQuickAskRef.current(sessionId);
+        } else {
+          socket.send(JSON.stringify({ type: "input", data: action.data }));
+        }
       }
     });
     const resizeObserver = new ResizeObserver(() => {
@@ -1654,7 +1689,7 @@ function SettingsDialog({ shortcut, locale, onLocaleChange, onSave, onClose }: {
       </Field>
       {languageError ? <p className="form-error">{languageError}</p> : null}
       <Field label={t("快速询问快捷键")}><input value={value} onChange={(event) => setValue(event.target.value)} /></Field>
-      <p className="form-note">{t("支持 Ctrl、Shift、Alt 与单个按键，例如 Ctrl+Shift+Space。中文输入法组合期间不会拦截。")}</p>
+      <p className="form-note">{t("默认按 F8，也可以在空命令行输入 ?? 或 ？？ 后按回车。中文输入法组合期间不会拦截快捷键。")}</p>
       <button className="primary-button" onClick={() => onSave(value)}>{t("保存")}</button>
     </Modal>
   );

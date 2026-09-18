@@ -2,13 +2,22 @@ import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  shell,
+} from "electron";
 
 import { requireCodexCli, resolveCodexCliCandidates } from "./codex-cli.js";
 import { matchesDesktopShortcut } from "./desktop-shortcuts.js";
 
 const toggleQuickAskChannel = "stackbridge:toggle-quick-ask";
 const setQuickAskShortcutChannel = "stackbridge:set-quick-ask-shortcut";
+const setCompositionActiveChannel = "stackbridge:set-composition-active";
 const maximumShortcutLength = 64;
 
 app.setName("StackBridge");
@@ -16,13 +25,25 @@ app.setPath("userData", join(app.getPath("appData"), "StackBridge"));
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 let mainWindow: BrowserWindow | undefined;
-let quickAskShortcut = "Ctrl+Shift+Space";
+let quickAskShortcut = "F8";
+let registeredQuickAskShortcut: string | undefined;
+let compositionActive = false;
 
 ipcMain.on(setQuickAskShortcutChannel, (event, value: unknown) => {
   if (event.sender !== mainWindow?.webContents) return;
   if (typeof value !== "string" || value.length === 0 || value.length > maximumShortcutLength) return;
   quickAskShortcut = value;
+  registerQuickAskGlobalShortcut();
 });
+
+ipcMain.on(setCompositionActiveChannel, (event, value: unknown) => {
+  if (event.sender !== mainWindow?.webContents || typeof value !== "boolean") return;
+  compositionActive = value;
+  if (compositionActive) unregisterQuickAskGlobalShortcut();
+  else registerQuickAskGlobalShortcut();
+});
+
+app.on("will-quit", unregisterQuickAskGlobalShortcut);
 
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -91,6 +112,8 @@ async function startDesktop(): Promise<void> {
     event.preventDefault();
     mainWindow?.webContents.send(toggleQuickAskChannel);
   });
+  mainWindow.on("focus", registerQuickAskGlobalShortcut);
+  mainWindow.on("blur", unregisterQuickAskGlobalShortcut);
 
   mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
@@ -108,10 +131,32 @@ async function startDesktop(): Promise<void> {
   });
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => {
+    unregisterQuickAskGlobalShortcut();
     mainWindow = undefined;
   });
 
   await mainWindow.loadURL(`${workbenchUrl}/?desktop=1`);
+}
+
+function registerQuickAskGlobalShortcut(): void {
+  unregisterQuickAskGlobalShortcut();
+  const window = mainWindow;
+  if (window === undefined || !window.isFocused() || compositionActive) return;
+  try {
+    const registered = globalShortcut.register(quickAskShortcut, () => {
+      if (mainWindow?.isFocused()) mainWindow.webContents.send(toggleQuickAskChannel);
+    });
+    if (registered) registeredQuickAskShortcut = quickAskShortcut;
+    else console.warn(`Could not register Quick Ask shortcut: ${quickAskShortcut}`);
+  } catch (error) {
+    console.warn(`Invalid Quick Ask shortcut: ${quickAskShortcut}`, error);
+  }
+}
+
+function unregisterQuickAskGlobalShortcut(): void {
+  if (registeredQuickAskShortcut === undefined) return;
+  globalShortcut.unregister(registeredQuickAskShortcut);
+  registeredQuickAskShortcut = undefined;
 }
 
 function configureCore(port: number, workbenchUrl: string): void {
