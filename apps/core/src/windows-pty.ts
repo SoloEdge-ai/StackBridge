@@ -93,9 +93,14 @@ class NodePtyProcess implements PtyProcess {
 }
 
 function toPtyEnvironment(source: NodeJS.ProcessEnv): Record<string, string> {
-  return Object.fromEntries(
+  const environment = Object.fromEntries(
     Object.entries(source).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
     ),
   );
+  if (environment.TERM === undefined || environment.TERM === "" || environment.TERM === "dumb") {
+    environment.TERM = "xterm-256color";
+  }
+  environment.COLORTERM ||= "truecolor";
+  return environment;
 }

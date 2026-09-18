@@ -29,6 +29,8 @@ describe("Windows PowerShell PTY", () => {
 
       try {
         await waitForOutput(() => output, "PS ", 15_000);
+        session.write('Write-Output "SB_TERM=$env:TERM SB_COLORTERM=$env:COLORTERM"\r');
+        await waitForOutput(() => output, "SB_TERM=xterm-256color SB_COLORTERM=truecolor");
         session.write(
           "$env:STACKBRIDGE_PTY_TEST='kept'; Write-Output ('SB_'+'READY')\r",
         );

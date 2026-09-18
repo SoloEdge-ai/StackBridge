@@ -11,7 +11,7 @@ const zshDockerPromptTemplateFileName = "docker-zshrc.template";
 const integrationTokenPlaceholder = "__STACKBRIDGE_SESSION_TOKEN__";
 const dockerIntegrationTokenPlaceholder = "__STACKBRIDGE_DOCKER_TOKEN__";
 const localEnvironmentLabelBase64 = Buffer.from(localEnvironmentLabel, "utf8").toString("base64");
-export const remoteUtf8LocaleBootstrap = 'if command -v locale >/dev/null 2>&1; then for __sb_locale in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do if [ "$(LC_ALL="$__sb_locale" locale charmap 2>/dev/null)" = "UTF-8" ]; then export LANG="$__sb_locale" LC_ALL="$__sb_locale"; break; fi; done; unset __sb_locale; fi';
+export const remoteTerminalEnvironmentBootstrap = 'if [ -z "${TERM:-}" ] || [ "$TERM" = dumb ]; then export TERM=xterm-256color; fi; if command -v locale >/dev/null 2>&1; then for __sb_locale in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do if [ "$(LC_ALL="$__sb_locale" locale charmap 2>/dev/null)" = "UTF-8" ]; then export LANG="$__sb_locale" LC_ALL="$__sb_locale"; break; fi; done; unset __sb_locale; fi';
 
 export function ensurePowerShellIntegration(dataDirectory: string): string {
   const shellDirectory = join(dataDirectory, "shell");
@@ -203,7 +203,7 @@ if ($script:StackBridgeNativeSsh) {
       }
       $contextText = $script:StackBridgeContext + $script:StackBridgeSeparator + "SSH: $displayTarget"
       $contextEncoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($contextText))
-      $launchCommand = '${remoteUtf8LocaleBootstrap}; export STACKBRIDGE_CONTEXT_B64=''' + $contextEncoded + '''; if [ "\${SHELL##*/}" = "zsh" ] && command -v zsh >/dev/null 2>&1; then export STACKBRIDGE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec zsh -i; elif command -v bash >/dev/null 2>&1; then exec bash --rcfile "$HOME/.sbridge/shell/bashrc" -i; else exec "\${SHELL:-/bin/sh}" -i; fi'
+      $launchCommand = '${remoteTerminalEnvironmentBootstrap}; export STACKBRIDGE_CONTEXT_B64=''' + $contextEncoded + '''; if [ "\${SHELL##*/}" = "zsh" ] && command -v zsh >/dev/null 2>&1; then export STACKBRIDGE_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec zsh -i; elif command -v bash >/dev/null 2>&1; then exec bash --rcfile "$HOME/.sbridge/shell/bashrc" -i; else exec "\${SHELL:-/bin/sh}" -i; fi'
       $interactiveArgs = @('-tt') + $sshArgs
       & $script:StackBridgeNativeSsh @interactiveArgs $launchCommand
     }

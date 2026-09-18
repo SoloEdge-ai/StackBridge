@@ -540,9 +540,9 @@ test("tracks a hand-typed SSH session into an interactive Docker shell", async (
   await expect(terminalRows).not.toContainText("CLEAR_SENTINEL", { timeout: 10_000 });
 });
 
-test("uses UTF-8 for a hand-typed SSH target whose login locale is ASCII", async ({ page }) => {
+test("uses UTF-8 and xterm capabilities for a hand-typed SSH target", async ({ page }) => {
   const target = process.env.STACKBRIDGE_E2E_UTF8_SSH;
-  test.skip(!target, "requires an SSH target with an ASCII login locale");
+  test.skip(!target, "requires an SSH target with an interactive Zsh prompt");
   test.setTimeout(45_000);
   await page.goto("/");
 
@@ -556,11 +556,13 @@ test("uses UTF-8 for a hand-typed SSH target whose login locale is ASCII", async
     { timeout: 20_000 },
   );
   await expect(rows).toContainText("➜", { timeout: 20_000 });
-  await input.pressSequentially("locale charmap; printf 'UTF8_PROMPT_READY\\n'", { delay: 4 });
+  await input.pressSequentially("printf 'SB_TERM=%s\\n' \"$TERM\"; locale charmap; printf 'UTF8_PROMPT_READY\\n'", { delay: 4 });
   await input.press("Enter");
 
   await expect(rows).toContainText("UTF8_PROMPT_READY", { timeout: 10_000 });
+  await expect(rows).toContainText("SB_TERM=xterm-256color", { timeout: 10_000 });
   await expect(rows).toContainText("UTF-8", { timeout: 10_000 });
   await expect(rows).toContainText("➜", { timeout: 10_000 });
+  await expect(rows).not.toContainText("?➜");
   await expect(rows).not.toContainText("??????");
 });

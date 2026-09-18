@@ -9,7 +9,7 @@ import {
   bashIntegrationScript,
   ensurePowerShellIntegration,
   powerShellIntegrationScript,
-  remoteUtf8LocaleBootstrap,
+  remoteTerminalEnvironmentBootstrap,
   zshDockerPromptScript,
   zshIntegrationScript,
 } from "./shell-integration.js";
@@ -29,8 +29,9 @@ describe("session-only shell integration", () => {
   });
 
   it("selects an available UTF-8 locale for managed remote shells", () => {
-    expect(remoteUtf8LocaleBootstrap).toContain('LC_ALL="$__sb_locale" locale charmap');
-    expect(remoteUtf8LocaleBootstrap).toContain('export LANG="$__sb_locale" LC_ALL="$__sb_locale"');
+    expect(remoteTerminalEnvironmentBootstrap).toContain('LC_ALL="$__sb_locale" locale charmap');
+    expect(remoteTerminalEnvironmentBootstrap).toContain('export LANG="$__sb_locale" LC_ALL="$__sb_locale"');
+    expect(remoteTerminalEnvironmentBootstrap).toContain("export TERM=xterm-256color");
   });
 
   it.each([

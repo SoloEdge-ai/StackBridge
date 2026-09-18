@@ -36,9 +36,9 @@
 10. Playwright 在本地 PowerShell 手输 `ssh friden-dev-cube`，确认 cwd/Shell 更新为 `/home/friden` 与 Zsh；随后分别手输 `docker exec -it stackbridge-m0b1-ubuntu22 bash` 和 `docker exec -it pedantic_vaughan zsh`。两种容器 Shell 连续执行两条命令后，每次提示符都重新显示完整 Docker 层；命令 API 将内部命令归属到 Docker frame，退出后恢复 SSH 层，进入前后的 `.bashrc`/`.zshrc` SHA-256 保持不变；远端 Zsh 执行 `clear` 后旧内容从 xterm 视口消失，并收到标准清屏序列。
 11. Playwright 从终端右键菜单分别创建左右和上下分栏；新窗格建立独立 PowerShell/ConPTY，能够独立输入与输出，刷新后恢复布局，单独关闭时折叠布局。
 12. Playwright 对真实 `friden-dev-cube` SSH/Zsh 与 `stackbridge-m0b1-ubuntu22` Docker/Bash 分别创建新分栏，确认每个窗格独立显示完整环境链、执行命令，并在下一次提示符前再次回显该链路；活动状态和 AI 目标随聚焦窗格切换。
-13. `L001` 的登录环境原始 charmap 为 `ANSI_X3.4-1968`；StackBridge 会话从远端已安装 locale 中选择 `C.UTF-8`，Playwright 确认 `locale charmap` 返回 `UTF-8`、Oh My Zsh 的 `➜` 正常显示且不再出现连续问号。服务器系统 locale 与 `.zshrc` 均未修改。
+13. `L001` 的登录环境原始 charmap 为 `ANSI_X3.4-1968`，且从未声明 `TERM` 的 Windows PTY 发起 SSH 时远端终端会退化为 `dumb`；StackBridge 现在为 PTY 与远端会话声明 `xterm-256color`，并从远端已安装 locale 中选择 `C.UTF-8`。Playwright 确认 `$TERM` 为 `xterm-256color`、`locale charmap` 返回 `UTF-8`、Oh My Zsh 的 `➜` 正常显示，且不存在 `?➜` 或连续问号。服务器系统 locale 与 `.zshrc` 均未修改。
 14. Playwright 验证首次启动默认英文，Settings 中切换简体中文后全部主要入口即时更新，刷新后语言选择仍然保留。
-14. 用户侧真实 OAuth 到达授权完成回调后暴露 keyring 长度失败；回归测试先复现 App Server 启动参数强制 keyring，再验证改为官方 `file` 存储。真实 App Server 已成功返回 `auth.openai.com` 授权地址并完成取消流程。
+15. 用户侧真实 OAuth 到达授权完成回调后暴露 keyring 长度失败；回归测试先复现 App Server 启动参数强制 keyring，再验证改为官方 `file` 存储。真实 App Server 已成功返回 `auth.openai.com` 授权地址并完成取消流程。
 
 ## 自动化验证
 
@@ -49,7 +49,7 @@
 - 审批 HTTP/WS：浏览器不能注入命令字段；无写入租约拒绝；批准只写入一次；重复请求返回同一 operation。
 - SQLite：重启后恢复对话/建议/operation，批准记录在 PTY 写入前落盘；命令元数据和分块输出可读，超出预算后只清理输出。
 - Go runtime：身份、结构化 argv、Docker binding、超时、安装路径和 Bash 优先探测。
-- Playwright：8 条基线 Chromium 用例加 1 条 `L001` 条件用例，覆盖英文默认/中文持久化、零令牌启动、本地真实终端、AI 快捷键、左右/上下分栏、布局恢复、真实受管 SSH/Docker 分栏与链路回显、受管 SSH 内继续手输 Docker、ASCII 登录环境 UTF-8 提示符，以及手输 SSH → Bash/Zsh Docker 后的容器命令归属、持续链路回显、rc 哈希不变与环境退出。
+- Playwright：8 条基线 Chromium 用例加 1 条 `L001` 条件用例，覆盖英文默认/中文持久化、零令牌启动、本地真实终端、AI 快捷键、左右/上下分栏、布局恢复、真实受管 SSH/Docker 分栏与链路回显、受管 SSH 内继续手输 Docker、ASCII 登录环境的 UTF-8 与 `xterm-256color` 提示符，以及手输 SSH → Bash/Zsh Docker 后的容器命令归属、持续链路回显、rc 哈希不变与环境退出。
 
 运行：
 

@@ -10,7 +10,7 @@ import { localEnvironmentLabel } from "./environment-labels.js";
 import {
   bashDockerPromptScript,
   bashIntegrationScript,
-  remoteUtf8LocaleBootstrap,
+  remoteTerminalEnvironmentBootstrap,
   zshDockerPromptScript,
   zshIntegrationScript,
 } from "./shell-integration.js";
@@ -202,11 +202,11 @@ function buildRemoteCommand(
 
 function shellLaunchCommand(shell: string): string {
   if (shell.endsWith("/zsh") || shell === "zsh") {
-    return `${remoteUtf8LocaleBootstrap}; ` +
+    return `${remoteTerminalEnvironmentBootstrap}; ` +
       'export STACKBRIDGE_USER_ZDOTDIR="${ZDOTDIR-}"; export STACKBRIDGE_USER_ZDOTDIR_SET="${ZDOTDIR+x}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec ' +
       `${posixQuote(shell)} -i`;
   }
-  return `${remoteUtf8LocaleBootstrap}; exec ${posixQuote(shell)} --rcfile "$HOME/.sbridge/shell/bashrc" -i`;
+  return `${remoteTerminalEnvironmentBootstrap}; exec ${posixQuote(shell)} --rcfile "$HOME/.sbridge/shell/bashrc" -i`;
 }
 
 function shellName(shell: string): string {
