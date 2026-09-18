@@ -121,7 +121,7 @@ const english = {
   "工作台设置": "Settings",
   "语言": "Language",
   "快速询问快捷键": "Quick Ask shortcut",
-  "默认按 F8，也可以在空命令行输入 ?? 或 ？？ 后按回车。中文输入法组合期间不会拦截快捷键。": "Press F8 by default, or type ?? (half-width or full-width) at an empty prompt and press Enter. Shortcuts are never intercepted during input method composition.",
+  "默认按 F8，也可以在设置中修改。中文输入法组合期间不会拦截快捷键。": "Press F8 by default, or change it in Settings. Shortcuts are never intercepted during input method composition.",
   "保存": "Save",
   "无法保存语言设置。": "Unable to save the language setting.",
   "等待确认": "Awaiting confirmation",

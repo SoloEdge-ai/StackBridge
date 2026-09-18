@@ -30,7 +30,7 @@
 4. 在容器设置 `APP_ENV=stackbridge` 并切换到 `/tmp`；页面刷新后重新附着同一 PTY，变量与 cwd 保留，命令没有重跑。
 5. 回放期间暂停 xterm 自动回复的输入转发，避免刷新时把 terminal capability response 写入当前提示符。
 6. runtime 版本变化触发一次性部署提案；批准后安装到 `~/.sbridge`，随后连接静默复用匹配摘要的产物。
-7. Playwright 从无 Cookie 的新浏览器直接打开工作台，无需任何启动令牌；真实输入 PowerShell 命令并看到输出。`F8` 或空命令行输入半角 `??`/全角 `？？` 后回车，会在当前 xterm 光标旁打开 Quick Ask，且触发字符不进入 PowerShell；未发送状态约 38px 高、420px 宽，只保留可聚焦/点击的上下文核验状态点、输入框和发送键，状态点提示包含完整环境链、cwd、Shell 与输出数量，点击进入侧栏详情。回答预览限制为 520px 宽、150px 高；编辑器从一行自动增长至三行。测试逐像素确认终端高度变化小于 2px、浮层边缘距光标小于 20px；大量输出把光标推到屏幕底部后浮层会翻到光标上方，Esc 返回后未提交的 PowerShell 输入保持不变。
+7. Playwright 从无 Cookie 的新浏览器直接打开工作台，无需任何启动令牌；真实输入 PowerShell 命令并看到输出。终端键盘唤醒 AI 只使用快捷键，默认 `F8`，会在当前 xterm 光标旁打开 Quick Ask；半角与全角问号均原样进入 PowerShell，不会打开 AI。未发送状态约 38px 高、420px 宽，只保留可聚焦/点击的上下文核验状态点、输入框和发送键，状态点提示包含完整环境链、cwd、Shell 与输出数量，点击进入侧栏详情。回答预览限制为 520px 宽、150px 高；编辑器从一行自动增长至三行。测试逐像素确认终端高度变化小于 2px、浮层边缘距光标小于 20px；大量输出把光标推到屏幕底部后浮层会翻到光标上方，Esc 返回后未提交的 PowerShell 输入保持不变。
 8. Playwright 经 UI 连接真实 `friden-dev-cube` SSH/Zsh 和 Ubuntu 22.04 Docker/Bash，环境均为已核验，实际命令输出分别为 `PLAYWRIGHT_SSH_OK` 与 `PLAYWRIGHT_DOCKER_OK`；在 UI 创建的受管 SSH 终端内继续手输 `docker exec -it ... bash`，也能加载命令作用域集成、显示完整链路和记录内部命令，退出后恢复受管 SSH。
 9. 关闭终端标签会终止对应 PTY、释放本地和远端会话容量；Playwright 每条用例清理自己创建的终端，长期运行 Core 不再因测试积累达到 16 会话上限。
 10. Playwright 在本地 PowerShell 手输 `ssh friden-dev-cube`，确认 cwd/Shell 更新为 `/home/friden` 与 Zsh；随后分别手输 `docker exec -it stackbridge-m0b1-ubuntu22 bash` 和 `docker exec -it pedantic_vaughan zsh`。两种容器 Shell 连续执行两条命令后，每次提示符都重新显示完整 Docker 层；命令 API 将内部命令归属到 Docker frame，退出后恢复 SSH 层，进入前后的 `.bashrc`/`.zshrc` SHA-256 保持不变；远端 Zsh 执行 `clear` 后旧内容从 xterm 视口消失，并收到标准清屏序列。

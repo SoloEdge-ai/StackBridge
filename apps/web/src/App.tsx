@@ -29,7 +29,6 @@ import {
   type MessageKey,
   useLanguage,
 } from "./i18n.js";
-import { TerminalQuickAskTrigger } from "./terminal-quick-ask-trigger.js";
 
 const tabsStorageKey = "stackbridge.terminalTabs.v3";
 const legacyTabsStorageKey = "stackbridge.terminalTabs.v2";
@@ -795,10 +794,6 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
           onContext={handleTerminalContext}
           onState={handleTerminalState}
           onCursorAnchor={handleCursorAnchor}
-          onQuickAsk={(sessionId) => {
-            activatePane(tab.id, sessionId);
-            setQuickAiPaneId(sessionId);
-          }}
           onUnavailable={() => void closePane(tab.id, pane.id)}
         />
         {quickAiPaneId === pane.id ? (
@@ -1219,7 +1214,6 @@ function TerminalPane({
   onContext,
   onState,
   onCursorAnchor,
-  onQuickAsk,
   onUnavailable,
 }: {
   sessionId: string;
@@ -1227,7 +1221,6 @@ function TerminalPane({
   onContext(sessionId: string, context: TerminalContext): void;
   onState(sessionId: string, state: ConnectionState, writable: boolean, detail: string): void;
   onCursorAnchor(sessionId: string, anchor: TerminalCursorAnchor | undefined): void;
-  onQuickAsk(sessionId: string): void;
   onUnavailable(): void;
 }) {
   const { t } = useLanguage();
@@ -1237,7 +1230,6 @@ function TerminalPane({
   const onContextRef = useRef(onContext);
   const onStateRef = useRef(onState);
   const onCursorAnchorRef = useRef(onCursorAnchor);
-  const onQuickAskRef = useRef(onQuickAsk);
   const onUnavailableRef = useRef(onUnavailable);
   const tRef = useRef(t);
 
@@ -1245,10 +1237,9 @@ function TerminalPane({
     onContextRef.current = onContext;
     onStateRef.current = onState;
     onCursorAnchorRef.current = onCursorAnchor;
-    onQuickAskRef.current = onQuickAsk;
     onUnavailableRef.current = onUnavailable;
     tRef.current = t;
-  }, [onContext, onCursorAnchor, onQuickAsk, onState, onUnavailable, t]);
+  }, [onContext, onCursorAnchor, onState, onUnavailable, t]);
 
   useEffect(() => {
     activeRef.current = active;
@@ -1303,16 +1294,9 @@ function TerminalPane({
     let replaying = false;
     let unavailableReported = false;
     let poll: number | undefined;
-    const quickAskTrigger = new TerminalQuickAskTrigger();
-
     const dataSubscription = terminal.onData((data) => {
-      if (!canWrite || replaying || socket?.readyState !== WebSocket.OPEN) return;
-      for (const action of quickAskTrigger.consume(data)) {
-        if (action.type === "quickAsk") {
-          onQuickAskRef.current(sessionId);
-        } else {
-          socket.send(JSON.stringify({ type: "input", data: action.data }));
-        }
+      if (canWrite && !replaying && socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "input", data }));
       }
     });
     const resizeObserver = new ResizeObserver(() => {
@@ -1689,7 +1673,7 @@ function SettingsDialog({ shortcut, locale, onLocaleChange, onSave, onClose }: {
       </Field>
       {languageError ? <p className="form-error">{languageError}</p> : null}
       <Field label={t("快速询问快捷键")}><input value={value} onChange={(event) => setValue(event.target.value)} /></Field>
-      <p className="form-note">{t("默认按 F8，也可以在空命令行输入 ?? 或 ？？ 后按回车。中文输入法组合期间不会拦截快捷键。")}</p>
+      <p className="form-note">{t("默认按 F8，也可以在设置中修改。中文输入法组合期间不会拦截快捷键。")}</p>
       <button className="primary-button" onClick={() => onSave(value)}>{t("保存")}</button>
     </Modal>
   );

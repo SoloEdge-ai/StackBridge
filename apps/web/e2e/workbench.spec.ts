@@ -273,34 +273,34 @@ test("opens Quick Ask when the desktop shell forwards its shortcut", async ({ pa
   await expect(page.locator(".terminal-pane-shell.active .inline-assistant textarea")).toBeFocused();
 });
 
-test("opens Quick Ask from the terminal ?? trigger without executing it", async ({ page }) => {
+test("passes terminal question marks to PowerShell without opening Quick Ask", async ({ page }) => {
   await page.goto("/");
   const pane = page.locator(".terminal-pane-shell.active");
   const terminalInput = pane.locator(".xterm-helper-textarea");
   await expect(pane.locator(".terminal-pane-context")).toContainText("Local Windows");
+  await expect(pane.locator(".xterm-rows")).toContainText("PS ", { timeout: 10_000 });
 
   await terminalInput.focus();
   await terminalInput.pressSequentially("??", { delay: 40 });
   await terminalInput.press("Enter");
 
-  await expect(pane.locator(".inline-assistant")).toBeVisible();
-  await expect(pane.locator(".inline-assistant textarea")).toBeFocused();
-  await expect(pane.locator(".xterm-rows")).not.toContainText("not recognized");
+  await expect(pane.locator(".inline-assistant")).toHaveCount(0);
+  await expect(pane.locator(".xterm-rows")).toContainText("CommandNotFoundException");
 });
 
-test("opens Quick Ask from the Chinese full-width ？？ trigger without executing it", async ({ page }) => {
+test("passes full-width question marks to PowerShell without opening Quick Ask", async ({ page }) => {
   await page.goto("/");
   const pane = page.locator(".terminal-pane-shell.active");
   const terminalInput = pane.locator(".xterm-helper-textarea");
   await expect(pane.locator(".terminal-pane-context")).toContainText("Local Windows");
+  await expect(pane.locator(".xterm-rows")).toContainText("PS ", { timeout: 10_000 });
 
   await terminalInput.focus();
   await page.keyboard.insertText("？？");
   await terminalInput.press("Enter");
 
-  await expect(pane.locator(".inline-assistant")).toBeVisible();
-  await expect(pane.locator(".inline-assistant textarea")).toBeFocused();
-  await expect(pane.locator(".xterm-rows")).not.toContainText("CommandNotFoundException");
+  await expect(pane.locator(".inline-assistant")).toHaveCount(0);
+  await expect(pane.locator(".xterm-rows")).toContainText("CommandNotFoundException");
 });
 
 test("offers AI actions beside the latest terminal output", async ({ page }) => {
