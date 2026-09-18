@@ -6,7 +6,7 @@ StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台�
 
 ## Windows 便携版
 
-本地构建产物为 `release/StackBridge-Portable-x64.exe`。它是免安装单文件，双击后自动解压到临时目录、启动同源 Core 与桌面窗口，不需要 Node.js、pnpm、另装 Codex CLI 或启动令牌。终端默认从当前 Windows 用户目录启动，应用数据继续保存在 `%LOCALAPPDATA%\StackBridge`。便携包固定携带 `codex-cli 0.128.0` Windows x64，并继续使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
+本地构建产物为 `release/StackBridge-Portable-x64.exe`。它是免安装单文件，双击后自动解压到临时目录、启动同源 Core 与桌面窗口，不需要 Node.js、pnpm、另装 Codex CLI 或启动令牌。终端默认从当前 Windows 用户目录启动，应用数据继续保存在 `%LOCALAPPDATA%\StackBridge`。便携包固定携带 `codex-cli 0.155.0-alpha.2.6` Windows x64，并继续使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
 
 重新构建：
 
@@ -26,9 +26,9 @@ pnpm install
 pnpm dev
 ```
 
-打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。可以新建本地、SSH 或远端 Docker 终端；在任意终端窗格右键可选择横向（左右）或纵向（上下）分栏，每个分栏都是独立 PTY，AI 上下文跟随当前聚焦窗格。受管 SSH/Docker 分栏会复制同一连接配置并重新核验目标；手输连接无法安全复制运行态，因此新分栏从本地 PowerShell 开始。每个窗格内侧使用一条紧凑状态线持续显示环境链、cwd 和 Shell，受管 PowerShell/Bash/Zsh 还会在每次提示符前回显环境链。`Ctrl+Shift+Space` 打开/收起 AI 对话。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。在终端手输普通 `ssh host` 时，当前会话专用的 Bash/Zsh 集成会自动同步到远端用户私有的 `~/.sbridge/shell`，因此后续手输 `docker exec -it ...` 也能显示进入和退出的环境层级。
+打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。界面默认使用英文，可在 Settings → Language 即时切换为简体中文，选择会在刷新和下次启动后保留。Codex 模型目录直接来自随包 App Server，当前包含 Astra、Sol、Terra、Luna 和 GPT-5.5，新对话默认选择 Luna。可以新建本地、SSH 或远端 Docker 终端；在任意终端窗格右键可选择横向（左右）或纵向（上下）分栏，每个分栏都是独立 PTY，AI 上下文跟随当前聚焦窗格。受管 SSH/Docker 分栏会复制同一连接配置并重新核验目标；手输连接无法安全复制运行态，因此新分栏从本地 PowerShell 开始。每个窗格内侧使用一条紧凑状态线持续显示环境链、cwd 和 Shell，受管 PowerShell/Bash/Zsh 还会在每次提示符前回显环境链。`Ctrl+Shift+Space` 打开/收起 AI 对话。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。StackBridge 启动的远端 Shell 会在远端已有 locale 中选择 UTF-8，避免 ASCII 登录环境把 Oh My Zsh 等提示符字符变成问号；该设置只作用于当前会话，不修改服务器系统 locale。在终端手输普通 `ssh host` 时，当前会话专用的 Bash/Zsh 集成会自动同步到远端用户私有的 `~/.sbridge/shell`；后续手输普通交互式 `docker exec -it ... bash/zsh` 时，StackBridge 会在容器内用 `mktemp` 创建仅当前用户可访问的随机临时目录，加载后立即删除，再正常读取原有 `.bashrc`/`.zshrc`。容器只拿到派生的命令作用域标记，可上报 prompt、命令、cwd 和退出码，但不能推送/弹出环境或改变 runtime binding；因此提示符持续显示完整链路、Agent 能关联容器命令输出，同时用户 Shell 配置不被改写。受管 Shell 在命令边界同步标准清屏序列，`clear`/`cls` 会同时清理当前视口并在刷新回放后保持一致。
 
-AI 面板使用独立的 StackBridge Codex 数据目录。点击“使用 ChatGPT 登录”完成官方授权；StackBridge 不复制当前 Codex 应用的 token 文件。提问时默认发送当前环境、最近 20 条命令摘要和最近 3 条输出，总量最多 64 KiB。所有建议执行前都需要再次确认。
+AI 面板使用独立的 StackBridge Codex 数据目录。点击“Sign in with ChatGPT / 使用 ChatGPT 登录”完成官方授权；StackBridge 不复制当前 Codex 应用的 token 文件。Codex 凭据固定写入 `%LOCALAPPDATA%\StackBridge\codex\auth.json`，避开 Windows Credential Manager 对长 OAuth token 的长度限制，并继承当前用户目录的文件访问控制。提问时默认发送当前环境、最近 20 条命令摘要和最近 3 条输出，总量最多 64 KiB。所有建议执行前都需要再次确认。
 
 常用验证命令：
 
@@ -88,6 +88,6 @@ pnpm build
 - 多页面可同时查看同一终端，但只有一个浏览器会话持有写入租约；确认执行也要求同一会话持有该租约。
 - 普通 PowerShell、Bash 和 Zsh 已支持；手输常见 `ssh host` 与远端 `docker exec -it` 可跟踪未核验环境。tmux/screen、提权 Shell、未适配 Shell、密码/MFA askpass、带远端命令的 SSH 和绕过临时包装器的连接只提供降级能力。
 - Shell 随机标记用于隔离普通输出，不等同于防御同 UID 恶意进程的受限 IPC 安全边界；runtime binding 始终由 Core 独立核验。
-- 当前网络位置的 OpenAI 授权端点返回 `unsupported_country_region_territory`，因此真实 ChatGPT 回合需要在受支持网络下完成；Fake Codex 覆盖了协议、上下文、建议、批准、同 Shell 执行和去重测试。
+- 用户侧真实 ChatGPT OAuth 已到达授权完成回调；此前因 Windows keyring 的 2560 字符限制无法保存 token，现已改用独立 `CODEX_HOME/auth.json` 并通过启动参数回归测试。真实模型回答与建议卡仍需用户在新便携版中重新登录后最终确认。
 - 尚未完成全屏 TUI、中文输入法组合输入和持续高吞吐压力的完整验收；Windows 便携版已有生产同源静态服务和 Electron 外壳，但尚未做干净 Windows 矩阵及代码签名。
 - 首版不提供文件自动修改、原生命令工具、外部插件、子代理或无人值守循环。

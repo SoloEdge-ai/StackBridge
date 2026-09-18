@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   TerminalSessionManager,
 } from "./terminal-session.js";
+import { dockerShellIntegrationToken } from "./shell-integration-token.js";
 import { ControlledPty } from "./test/controlled-pty.js";
 
 const testIntegrationToken = "test-shell-integration-token";
@@ -70,6 +71,35 @@ describe("terminal session lifecycle", () => {
     ]);
   });
 
+  it("clears the visible terminal when a managed shell runs clear", () => {
+    const pty = new ControlledPty();
+    const session = new TerminalSessionManager(() => pty, testManagerOptions).create({
+      cols: 100,
+      rows: 30,
+    });
+    const visibleOutput: string[] = [];
+    session.subscribe((event) => {
+      if (event.type === "output") visibleOutput.push(event.data);
+    });
+
+    pty.emitData("CLEAR_SENTINEL\r\n");
+    pty.emitData(shellMarker({
+      type: "commandStart",
+      command: "clear",
+      cwd: "/workspace",
+      shell: "zsh",
+      user: "root",
+    }));
+
+    expect(visibleOutput).toEqual([
+      "CLEAR_SENTINEL\r\n",
+      "\u001b[H\u001b[2J\u001b[3J",
+    ]);
+    expect(session.snapshot().replay).toBe(
+      "CLEAR_SENTINEL\r\n\u001b[H\u001b[2J\u001b[3J",
+    );
+  });
+
   it("treats unsigned shell markers as terminal output and never as execution authority", () => {
     const pty = new ControlledPty();
     const session = new TerminalSessionManager(() => pty, testManagerOptions).create({
@@ -109,6 +139,50 @@ describe("terminal session lifecycle", () => {
       verified: false,
     });
     expect(session.context().environment.bindingId).toBeUndefined();
+  });
+
+  it("accepts Docker command events from the child token but rejects environment changes", () => {
+    const pty = new ControlledPty();
+    const session = new TerminalSessionManager(() => pty, testManagerOptions).create({
+      cols: 100,
+      rows: 30,
+    });
+    pty.emitData(shellMarker({
+      type: "environmentPush",
+      kind: "docker",
+      label: "Docker: demo",
+    }));
+
+    pty.emitData(dockerShellMarker({ type: "environmentPop" }));
+    expect(session.context().environment).toMatchObject({
+      kind: "docker",
+      label: "Docker: demo",
+      verified: false,
+    });
+
+    pty.emitData(dockerShellMarker({
+      type: "commandStart",
+      command: "pwd",
+      cwd: "/workspace",
+      shell: "bash",
+      user: "root",
+    }));
+    pty.emitData("/workspace\r\n");
+    pty.emitData(dockerShellMarker({
+      type: "commandEnd",
+      cwd: "/workspace",
+      exitCode: 0,
+    }));
+
+    expect(session.commands()).toEqual([
+      expect.objectContaining({
+        command: "pwd",
+        cwdBefore: "/workspace",
+        cwdAfter: "/workspace",
+        output: "/workspace\r\n",
+        exitCode: 0,
+      }),
+    ]);
   });
 
   it("keeps the same PTY alive when a client disconnects and reconnects", () => {
@@ -334,4 +408,10 @@ function shellMarker(event: object): string {
 function unsignedShellMarker(event: object): string {
   const payload = Buffer.from(JSON.stringify(event), "utf8").toString("base64url");
   return `\u001b]777;stackbridge;${payload}\u0007`;
+}
+
+function dockerShellMarker(event: object): string {
+  const payload = Buffer.from(JSON.stringify(event), "utf8").toString("base64url");
+  const token = dockerShellIntegrationToken(testIntegrationToken);
+  return `\u001b]777;stackbridge;${token};${payload}\u0007`;
 }

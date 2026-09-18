@@ -105,7 +105,7 @@ export class ConversationService {
     if (this.terminals.get(input.terminalSessionId) === undefined) {
       throw new ConversationTerminalNotFoundError();
     }
-    const model = input.model ?? "gpt-5.6-sol";
+    const model = input.model ?? "gpt-5.6-luna";
     const codexThreadId = await this.assistant.createThread(model);
     const now = this.now().toISOString();
     const snapshot: ConversationSnapshot = {

@@ -90,6 +90,7 @@ const core = createCoreServer({
   remotePtyLauncher,
   conversations,
   ai,
+  settings: workspaceStore,
 });
 
 await core.listen({ host, port });

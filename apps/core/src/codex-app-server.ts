@@ -228,17 +228,7 @@ export class CodexAppServer implements TerminalAssistant {
   private async start(): Promise<void> {
     mkdirSync(this.options.codexHome, { recursive: true, mode: 0o700 });
     mkdirSync(this.options.controlDirectory, { recursive: true, mode: 0o700 });
-    const child = spawn(this.options.command ?? "codex", [
-      "app-server",
-      "--listen",
-      "stdio://",
-      "-c",
-      'cli_auth_credentials_store="keyring"',
-      "-c",
-      "features.shell_tool=false",
-      "-c",
-      'web_search="disabled"',
-    ], {
+    const child = spawn(this.options.command ?? "codex", codexAppServerArguments(), {
       cwd: this.options.controlDirectory,
       env: { ...process.env, CODEX_HOME: this.options.codexHome },
       stdio: ["pipe", "pipe", "pipe"],
@@ -361,6 +351,20 @@ export class CodexAppServer implements TerminalAssistant {
     this.turns.clear();
     this.currentTurnByThread.clear();
   }
+}
+
+export function codexAppServerArguments(): string[] {
+  return [
+      "app-server",
+      "--listen",
+      "stdio://",
+      "-c",
+      'cli_auth_credentials_store="file"',
+      "-c",
+      "features.shell_tool=false",
+      "-c",
+      'web_search="disabled"',
+  ];
 }
 
 function formatTurnPrompt(message: string, context: TerminalAssistantContext): string {

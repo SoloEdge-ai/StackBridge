@@ -15,6 +15,22 @@ const testManagerOptions = {
 };
 
 describe("conversation and approval workflow", () => {
+  it("uses Luna for a new conversation when no model is selected", async () => {
+    const pty = new ControlledPty();
+    const terminals = new TerminalSessionManager(() => pty, testManagerOptions);
+    const terminal = terminals.create({ cols: 100, rows: 30 });
+    const assistant = new FakeAssistant();
+    const conversations = new ConversationService(terminals, assistant);
+
+    const conversation = await conversations.create({
+      schemaVersion: 2,
+      terminalSessionId: terminal.id,
+    });
+
+    expect(conversation.model).toBe("gpt-5.6-luna");
+    expect(assistant.lastCreateModel).toBe("gpt-5.6-luna");
+  });
+
   it("freezes terminal context for a turn and turns model output into a Core-owned proposal", async () => {
     const pty = new ControlledPty();
     const terminals = new TerminalSessionManager(() => pty, testManagerOptions);
@@ -138,7 +154,7 @@ describe("conversation and approval workflow", () => {
       dockerPty,
       {
         environments: [
-          { id: "env.local", kind: "local", label: "本地 Windows", verified: true, bindingId: "local" },
+          { id: "env.local", kind: "local", label: "Local Windows", verified: true, bindingId: "local" },
           { id: "env.ssh", parentId: "env.local", kind: "ssh", label: "friden@cube", verified: true, bindingId: "host" },
           { id: "env.docker", parentId: "env.ssh", kind: "docker", label: "Docker: ubuntu22", verified: true, bindingId: "container" },
         ],
@@ -165,8 +181,8 @@ describe("conversation and approval workflow", () => {
     });
 
     expect(switched.messages.filter((message) => message.role === "timeline").map((message) => message.content)).toEqual([
-      "当前环境：本地 Windows",
-      "切换到：本地 Windows → friden@cube → Docker: ubuntu22",
+      "当前环境：Local Windows",
+      "切换到：Local Windows → friden@cube → Docker: ubuntu22",
     ]);
   });
 
@@ -332,9 +348,11 @@ describe("conversation and approval workflow", () => {
 });
 
 class FakeAssistant implements TerminalAssistant {
+  lastCreateModel: string | undefined;
   lastTurn: unknown;
 
-  async createThread(): Promise<string> {
+  async createThread(model: string): Promise<string> {
+    this.lastCreateModel = model;
     return "thread-1";
   }
 

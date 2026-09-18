@@ -57,6 +57,10 @@ export interface CoreServerOptions {
     CodexAppServer,
     "accountStatus" | "startLogin" | "cancelLogin" | "logout" | "models" | "close"
   >;
+  settings?: {
+    loadLocale(): "en" | "zh-CN";
+    saveLocale(locale: "en" | "zh-CN"): void;
+  };
 }
 
 export interface ListenOptions {
@@ -151,6 +155,22 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
 
     if (request.method === "GET" && url.pathname === "/v1/auth/status") {
       writeJson(response, 200, { authenticated: true });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/v1/settings") {
+      writeJson(response, 200, { locale: options.settings?.loadLocale() ?? "en" });
+      return;
+    }
+
+    if (request.method === "PUT" && url.pathname === "/v1/settings") {
+      const body = await readJsonBody(request);
+      if (!isRecord(body) || (body.locale !== "en" && body.locale !== "zh-CN")) {
+        writeJson(response, 400, { error: "invalid_request" });
+        return;
+      }
+      options.settings?.saveLocale(body.locale);
+      writeJson(response, 200, { locale: body.locale });
       return;
     }
 
@@ -753,6 +773,10 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
     chunks.push(buffer);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function writeJson(

@@ -21,6 +21,20 @@ afterEach(() => {
 });
 
 describe("WorkspaceStore", () => {
+  it("persists the selected interface language outside the browser origin", () => {
+    const directory = temporaryDirectory();
+    const first = new WorkspaceStore(directory);
+    expect(first.loadLocale()).toBe("en");
+    first.saveLocale("zh-CN");
+    first.close();
+
+    const reopened = new WorkspaceStore(directory);
+    expect(reopened.loadLocale()).toBe("zh-CN");
+    reopened.saveLocale("en");
+    expect(reopened.loadLocale()).toBe("en");
+    reopened.close();
+  });
+
   it("restores conversations, frozen proposals, durable operations, and command output", () => {
     const directory = temporaryDirectory();
     const conversation = sampleConversation();

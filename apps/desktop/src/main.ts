@@ -96,8 +96,8 @@ function configureCore(port: number, workbenchUrl: string): void {
   process.env.STACKBRIDGE_RUNTIME_MANIFEST = join(resourcesRoot, "runtime", "bin", "manifest.json");
   if (app.isPackaged) {
     const codexDirectory = join(resourcesRoot, "codex");
-    process.env.STACKBRIDGE_CODEX_BIN = join(codexDirectory, "codex.exe");
-    process.env.PATH = [join(codexDirectory, "path"), process.env.PATH ?? ""].filter(Boolean).join(";");
+    process.env.STACKBRIDGE_CODEX_BIN = join(codexDirectory, "bin", "codex.exe");
+    process.env.PATH = [join(codexDirectory, "codex-path"), process.env.PATH ?? ""].filter(Boolean).join(";");
   }
 }
 

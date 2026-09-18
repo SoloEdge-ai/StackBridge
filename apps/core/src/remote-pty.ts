@@ -6,7 +6,15 @@ import type {
 } from "@stackbridge/protocol";
 
 import type { RemoteSessionService } from "./remote-session-manager.js";
-import { bashIntegrationScript, zshIntegrationScript } from "./shell-integration.js";
+import { localEnvironmentLabel } from "./environment-labels.js";
+import {
+  bashDockerPromptScript,
+  bashIntegrationScript,
+  remoteUtf8LocaleBootstrap,
+  zshDockerPromptScript,
+  zshIntegrationScript,
+} from "./shell-integration.js";
+import { dockerShellIntegrationToken } from "./shell-integration-token.js";
 import type {
   PtyProcess,
   TerminalSessionInitialContext,
@@ -35,7 +43,12 @@ export function createRemotePtyLauncher(
       throw new Error("The verified target does not provide an interactive shell");
     }
     const shellIntegrationToken = randomBytes(24).toString("base64url");
-    await installRemoteShellIntegration(remoteSessions, snapshot, shellIntegrationToken);
+    await installRemoteShellIntegration(
+      remoteSessions,
+      snapshot,
+      shellIntegrationToken,
+      request.kind === "docker",
+    );
     const remoteCommand = buildRemoteCommand(request, snapshot);
     const args = [
       "-tt",
@@ -64,7 +77,7 @@ export function createRemotePtyLauncher(
     const localEnvironment = {
       id: `env.${randomUUID()}`,
       kind: "local" as const,
-      label: "本地 Windows",
+      label: localEnvironmentLabel,
       verified: true,
       bindingId: `local.${process.pid}`,
     };
@@ -111,18 +124,39 @@ async function installRemoteShellIntegration(
   remoteSessions: RemoteSessionService,
   snapshot: RemoteSessionSnapshot,
   shellIntegrationToken: string,
+  commandScoped: boolean,
 ): Promise<void> {
-  const bash = Buffer.from(bashIntegrationScript(shellIntegrationToken), "utf8").toString("base64");
-  const zsh = Buffer.from(zshIntegrationScript(shellIntegrationToken), "utf8").toString("base64");
+  const integrationToken = commandScoped
+    ? dockerShellIntegrationToken(shellIntegrationToken)
+    : shellIntegrationToken;
+  const bashScript = commandScoped
+    ? bashDockerPromptScript(integrationToken)
+    : bashIntegrationScript(integrationToken);
+  const zshScript = commandScoped
+    ? zshDockerPromptScript(integrationToken)
+    : zshIntegrationScript(integrationToken);
+  const bash = Buffer.from(bashScript, "utf8").toString("base64");
+  const zsh = Buffer.from(zshScript, "utf8").toString("base64");
+  const dockerIntegrationToken = dockerShellIntegrationToken(shellIntegrationToken);
+  const dockerBash = Buffer.from(
+    bashDockerPromptScript(dockerIntegrationToken),
+    "utf8",
+  ).toString("base64");
+  const dockerZsh = Buffer.from(
+    zshDockerPromptScript(dockerIntegrationToken),
+    "utf8",
+  ).toString("base64");
   const result = await remoteSessions.execute(snapshot.sessionId, {
     cwd: snapshot.defaultCwd,
     program: "/bin/sh",
     args: [
       "-c",
-      'umask 077; mkdir -p "$HOME/.sbridge/shell" && printf %s "$1" | base64 -d > "$HOME/.sbridge/shell/bashrc" && printf %s "$2" | base64 -d > "$HOME/.sbridge/shell/.zshrc"',
+      'umask 077; mkdir -p "$HOME/.sbridge/shell" && printf %s "$1" | base64 -d > "$HOME/.sbridge/shell/bashrc" && printf %s "$2" | base64 -d > "$HOME/.sbridge/shell/.zshrc" && printf %s "$3" | base64 -d > "$HOME/.sbridge/shell/docker-bashrc" && printf %s "$4" | base64 -d > "$HOME/.sbridge/shell/docker-zshrc"',
       "stackbridge",
       bash,
       zsh,
+      dockerBash,
+      dockerZsh,
     ],
     timeoutMs: 15_000,
   });
@@ -137,8 +171,8 @@ function buildRemoteCommand(
 ): string {
   const launchShell = shellLaunchCommand(snapshot.shell!);
   const context = request.kind === "ssh"
-    ? `本地 Windows → ${request.user}@${request.host}`
-    : `本地 Windows → ${request.user}@${request.host} → Docker: ${request.container}`;
+    ? `${localEnvironmentLabel} → ${request.user}@${request.host}`
+    : `${localEnvironmentLabel} → ${request.user}@${request.host} → Docker: ${request.container}`;
   const contextBase64 = Buffer.from(context, "utf8").toString("base64");
   if (request.kind === "ssh") {
     return `export STACKBRIDGE_CONTEXT_B64=${posixQuote(contextBase64)}; ${launchShell}`;
@@ -168,10 +202,11 @@ function buildRemoteCommand(
 
 function shellLaunchCommand(shell: string): string {
   if (shell.endsWith("/zsh") || shell === "zsh") {
-    return 'export STACKBRIDGE_USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec ' +
+    return `${remoteUtf8LocaleBootstrap}; ` +
+      'export STACKBRIDGE_USER_ZDOTDIR="${ZDOTDIR-}"; export STACKBRIDGE_USER_ZDOTDIR_SET="${ZDOTDIR+x}"; export ZDOTDIR="$HOME/.sbridge/shell"; exec ' +
       `${posixQuote(shell)} -i`;
   }
-  return `exec ${posixQuote(shell)} --rcfile "$HOME/.sbridge/shell/bashrc" -i`;
+  return `${remoteUtf8LocaleBootstrap}; exec ${posixQuote(shell)} --rcfile "$HOME/.sbridge/shell/bashrc" -i`;
 }
 
 function shellName(shell: string): string {

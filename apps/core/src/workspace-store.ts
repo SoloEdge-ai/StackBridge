@@ -42,6 +42,7 @@ export interface ConversationPersistence {
 export class WorkspaceStore implements ConversationPersistence {
   private readonly database: DatabaseSyncType;
   private readonly outputDirectory: string;
+  private readonly settingsPath: string;
 
   constructor(
     dataDirectory: string,
@@ -53,6 +54,7 @@ export class WorkspaceStore implements ConversationPersistence {
   ) {
     mkdirSync(dataDirectory, { recursive: true });
     this.outputDirectory = join(dataDirectory, "terminal-output");
+    this.settingsPath = join(dataDirectory, "settings.json");
     mkdirSync(this.outputDirectory, { recursive: true });
     const databasePath = join(dataDirectory, "stackbridge.sqlite");
     if (existsSync(databasePath)) this.backupBeforeMigration(databasePath);
@@ -91,6 +93,24 @@ export class WorkspaceStore implements ConversationPersistence {
       const parsed = operationSnapshotSchema.safeParse(JSON.parse(snapshot_json));
       return parsed.success ? [parsed.data] : [];
     });
+  }
+
+  loadLocale(): "en" | "zh-CN" {
+    try {
+      const value = JSON.parse(readFileSync(this.settingsPath, "utf8")) as { locale?: unknown };
+      return value.locale === "zh-CN" ? "zh-CN" : "en";
+    } catch {
+      return "en";
+    }
+  }
+
+  saveLocale(locale: "en" | "zh-CN"): void {
+    const temporaryPath = `${this.settingsPath}.tmp`;
+    writeFileSync(temporaryPath, JSON.stringify({ locale }, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    renameSync(temporaryPath, this.settingsPath);
   }
 
   saveConversation(snapshot: ConversationSnapshot): void {

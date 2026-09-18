@@ -19,7 +19,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@openai/codex-win32-x64": "npm:@openai/codex@0.128.0-win32-x64",
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.155.0-alpha.2.6-win32-x64",
     "@types/node": "22.20.3",
     "electron": "44.4.1",
     "electron-builder": "26.15.3",
@@ -60,17 +60,10 @@
         ]
       },
       {
-        "from": "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/codex",
+        "from": "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc",
         "to": "codex",
         "filter": [
-          "*.exe"
-        ]
-      },
-      {
-        "from": "node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/path",
-        "to": "codex/path",
-        "filter": [
-          "rg.exe"
+          "**/*"
         ]
       },
       {

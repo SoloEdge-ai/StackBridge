@@ -18,6 +18,14 @@ import {
   type ConversationSnapshot,
   type OperationSnapshot,
 } from "@stackbridge/protocol";
+import {
+  localizedConversationTitle,
+  localizedEnvironmentLabel,
+  localizedKnownText,
+  localizedSystemMessage,
+  type MessageKey,
+  useLanguage,
+} from "./i18n.js";
 
 const tabsStorageKey = "stackbridge.terminalTabs.v3";
 const legacyTabsStorageKey = "stackbridge.terminalTabs.v2";
@@ -93,6 +101,7 @@ interface CodexModel {
 }
 
 export function App() {
+  const { t } = useLanguage();
   const [authState, setAuthState] = useState<AuthState>("checking");
   const [authAttempt, setAuthAttempt] = useState(0);
   useEffect(() => {
@@ -105,7 +114,10 @@ export function App() {
           response = await fetch("/v1/auth/session", { method: "POST" });
         }
         if (!response.ok) throw new Error("Core rejected the local browser session");
-        if (!cancelled) setAuthState("authenticated");
+        if (!cancelled) {
+          setAuthState("authenticated");
+          window.dispatchEvent(new Event("stackbridge:authenticated"));
+        }
       } catch {
         if (!cancelled) setAuthState("unavailable");
       }
@@ -115,13 +127,13 @@ export function App() {
     };
   }, [authAttempt]);
 
-  if (authState === "checking") return <CenteredStatus message="正在连接本地 Core…" />;
+  if (authState === "checking") return <CenteredStatus message={t("正在连接本地 Core…")} />;
   if (authState === "unavailable") {
     return (
       <main className="centered-status">
-        <p>无法连接本地 Core。</p>
+        <p>{t("无法连接本地 Core。")}</p>
         <button className="primary-button" onClick={() => setAuthAttempt((value) => value + 1)}>
-          重新连接
+          {t("重新连接")}
         </button>
       </main>
     );
@@ -130,6 +142,7 @@ export function App() {
 }
 
 function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void }) {
+  const { locale, setLocale, t } = useLanguage();
   const [tabs, setTabs] = useState<TerminalTab[]>(readStoredTabs);
   const [activeId, setActiveId] = useState(() => readStoredTabs()[0]?.id ?? "");
   const [paneRuntime, setPaneRuntime] = useState<Record<string, PaneRuntimeState>>({});
@@ -161,12 +174,12 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (response.status === 401) {
       onAuthenticationLost();
-      throw new Error("本地会话已失效");
+      throw new Error(t("本地会话已失效"));
     }
     if (response.status === 409 && payload.error === "deployment_approval_required") {
       throw new DeploymentRequired(payload);
     }
-    if (!response.ok) throw new Error(apiError(payload, "无法创建终端"));
+    if (!response.ok) throw new Error(apiError(payload, t("无法创建终端"), t));
     const parsed = terminalSessionSnapshotSchema.parse(payload);
     return {
       id: parsed.id,
@@ -174,7 +187,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       kind,
       createRequest: reusableTerminalRequest(body),
     };
-  }, [onAuthenticationLost]);
+  }, [onAuthenticationLost, t]);
 
   const addTerminal = useCallback(async (body: Record<string, unknown>, title: string, kind: TerminalKind) => {
     const pane = await createTerminalSession(body, title, kind);
@@ -196,11 +209,11 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     if (tabs.length > 0 || creatingInitial.current) return;
     creatingInitial.current = true;
     void addTerminal({ cols: 120, rows: 32, kind: "local" }, "PowerShell", "local")
-      .catch((reason) => setWorkspaceError(errorMessage(reason)))
+      .catch((reason) => setWorkspaceError(errorMessage(reason, t)))
       .finally(() => {
         creatingInitial.current = false;
       });
-  }, [addTerminal, tabs.length]);
+  }, [addTerminal, t, tabs.length]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -240,11 +253,11 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     setPaneRuntime((current) => ({
       ...current,
       [sessionId]: {
-        ...(current[sessionId] ?? connectingRuntime()),
+        ...(current[sessionId] ?? connectingRuntime(t("正在附着终端"))),
         context,
       },
     }));
-  }, []);
+  }, [t]);
 
   const handleTerminalState = useCallback((
     sessionId: string,
@@ -255,13 +268,13 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     setPaneRuntime((current) => ({
       ...current,
       [sessionId]: {
-        ...(current[sessionId] ?? connectingRuntime()),
+        ...(current[sessionId] ?? connectingRuntime(t("正在附着终端"))),
         connectionState: state,
         writable: canWrite,
         detail: message,
       },
     }));
-  }, []);
+  }, [t]);
 
   const selectTerminal = useCallback((id: string) => {
     if (id === activeId) return;
@@ -283,7 +296,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     const response = await fetch(`/v1/terminal-sessions/${paneId}`, { method: "DELETE" });
     if (!response.ok && response.status !== 404) {
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-      setWorkspaceError(apiError(payload, "无法关闭终端"));
+      setWorkspaceError(apiError(payload, t("无法关闭终端"), t));
       return;
     }
     const tabIndex = tabs.findIndex((tab) => tab.id === tabId);
@@ -310,7 +323,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     if (!layout && activeId === tabId) {
       setActiveId(next[Math.min(Math.max(tabIndex, 0), next.length - 1)]?.id ?? "");
     }
-  }, [activeId, persistTabs, tabs]);
+  }, [activeId, persistTabs, t, tabs]);
 
   const closeTerminal = useCallback(async (tabId: string) => {
     const tab = tabs.find((item) => item.id === tabId);
@@ -321,7 +334,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     const failed = responses.find((response) => !response.ok && response.status !== 404);
     if (failed) {
       const payload = await failed.json().catch(() => ({})) as Record<string, unknown>;
-      setWorkspaceError(apiError(payload, "无法关闭终端"));
+      setWorkspaceError(apiError(payload, t("无法关闭终端"), t));
       return;
     }
     const index = tabs.findIndex((item) => item.id === tabId);
@@ -335,7 +348,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     if (activeId === tabId) {
       setActiveId(next[Math.min(Math.max(index, 0), next.length - 1)]?.id ?? "");
     }
-  }, [activeId, persistTabs, tabs]);
+  }, [activeId, persistTabs, t, tabs]);
 
   const splitTerminal = useCallback(async (
     target: SplitMenuState,
@@ -363,20 +376,20 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       persistTabs(next);
       setActiveId(target.tabId);
     } catch (reason) {
-      setWorkspaceError(errorMessage(reason));
+      setWorkspaceError(errorMessage(reason, t));
     }
-  }, [createTerminalSession, persistTabs, tabs]);
+  }, [createTerminalSession, persistTabs, t, tabs]);
 
   const activeTab = tabs.find((tab) => tab.id === activeId);
   const activePane = activeTab
     ? findPane(activeTab.layout, activeTab.activePaneId) ?? flattenPanes(activeTab.layout)[0]
     : undefined;
   const activeRuntime = activePane
-    ? paneRuntime[activePane.id] ?? connectingRuntime()
-    : connectingRuntime("正在创建终端");
+    ? paneRuntime[activePane.id] ?? connectingRuntime(t("正在附着终端"))
+    : connectingRuntime(t("正在创建终端"));
   const context = activeRuntime.context;
   const writable = activeRuntime.writable;
-  const detail = workspaceError ?? activeRuntime.detail;
+  const detail = localizedKnownText(workspaceError ?? activeRuntime.detail, locale);
   const activePaneCount = activeTab ? flattenPanes(activeTab.layout).length : 0;
   const splitSource = splitMenu
     ? tabs.find((tab) => tab.id === splitMenu.tabId)?.layout
@@ -388,10 +401,10 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     ? splitSourcePane.createRequest.kind
     : "local";
   const splitTargetDescription = splitRequestKind === "docker"
-    ? "同一 Docker 目标 · 重新核验"
+    ? t("同一 Docker 目标 · 重新核验")
     : splitRequestKind === "ssh"
-      ? "同一 SSH 目标 · 重新核验"
-      : "新 PowerShell";
+      ? t("同一 SSH 目标 · 重新核验")
+      : t("新 PowerShell");
 
   const renderLayout = (layout: PaneLayout, tab: TerminalTab): ReactNode => {
     if (layout.type === "split") {
@@ -404,15 +417,17 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     }
     const pane = layout.pane;
     const isActive = pane.id === tab.activePaneId;
-    const runtime = paneRuntime[pane.id] ?? connectingRuntime();
+    const runtime = paneRuntime[pane.id] ?? connectingRuntime(t("正在附着终端"));
     const paneContext = runtime.context;
-    const paneBreadcrumb = paneContext?.environmentStack.map((item) => item.label).join(" → ") ?? "正在识别环境";
+    const paneBreadcrumb = paneContext?.environmentStack
+      .map((item) => localizedEnvironmentLabel(item.label, item.kind, locale))
+      .join(" → ") ?? t("正在识别环境");
     return (
       <section
         key={pane.id}
         className={`terminal-pane-shell ${isActive ? "active" : ""}`}
         role="group"
-        aria-label="终端窗格"
+        aria-label={t("终端窗格")}
         onPointerDownCapture={() => activatePane(tab.id, pane.id)}
         onFocusCapture={() => activatePane(tab.id, pane.id)}
         onContextMenu={(event) => {
@@ -431,10 +446,10 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
             <span className={`status-dot ${runtime.connectionState}`} />
             <strong title={paneBreadcrumb}>{paneBreadcrumb}</strong>
             {paneContext === undefined
-              ? <span className="detecting-pill" title="正在识别环境">…</span>
+              ? <span className="detecting-pill" title={t("正在识别环境")}>…</span>
               : paneContext.environment.verified
-                ? <span className="verified-pill" title="环境已核验">✓</span>
-                : <span className="warning-pill" title="环境未核验">!</span>}
+                ? <span className="verified-pill" title={t("环境已核验")}>✓</span>
+                : <span className="warning-pill" title={t("环境未核验")}>!</span>}
           </div>
           <div className="environment-meta">
             <code title={paneContext?.cwd}>{paneContext?.cwd || "—"}</code>
@@ -443,8 +458,8 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
           {activePaneCount > 1 ? (
             <button
               className="terminal-pane-close"
-              aria-label={`关闭 ${pane.title} 分栏`}
-              title="关闭这个分栏"
+              aria-label={locale === "zh-CN" ? `关闭 ${pane.title} 分栏` : `Close ${pane.title} split`}
+              title={t("关闭这个分栏")}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={() => void closePane(tab.id, pane.id)}
             >×</button>
@@ -463,19 +478,19 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
   return (
     <main className={`workbench ${aiOpen ? "with-ai" : ""}`}>
-      <nav className="activity-rail" aria-label="工作台导航">
+      <nav className="activity-rail" aria-label={t("工作台导航")}>
         <div className="rail-brand" title="StackBridge">S</div>
-        <button className="rail-button active" title="终端" aria-label="终端">
+        <button className="rail-button active" title={t("终端")} aria-label={t("终端")}>
           <AppIcon name="terminal" />
         </button>
-        <button className="rail-button" title="新建连接" aria-label="新建连接" onClick={() => setConnectionOpen(true)}>
+        <button className="rail-button" title={t("新建连接")} aria-label={t("新建连接")} onClick={() => setConnectionOpen(true)}>
           <AppIcon name="connection" />
         </button>
-        <button className={`rail-button ${aiOpen ? "active" : ""}`} title="AI 助手" aria-label="AI 助手" onClick={() => setAiOpen((value) => !value)}>
+        <button className={`rail-button ${aiOpen ? "active" : ""}`} title={t("AI 助手")} aria-label={t("AI 助手")} onClick={() => setAiOpen((value) => !value)}>
           <AppIcon name="spark" />
         </button>
         <div className="rail-spacer" />
-        <button className="rail-button" title="设置" aria-label="设置" onClick={() => setSettingsOpen(true)}>
+        <button className="rail-button" title={t("设置")} aria-label={t("设置")} onClick={() => setSettingsOpen(true)}>
           <AppIcon name="settings" />
         </button>
       </nav>
@@ -499,20 +514,20 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
                 </button>
                 <button
                   className="terminal-tab-close"
-                  aria-label={`关闭 ${tab.title}`}
-                  title="关闭终端"
+                  aria-label={locale === "zh-CN" ? `关闭 ${tab.title}` : `Close ${tab.title}`}
+                  title={t("关闭终端")}
                   onClick={() => void closeTerminal(tab.id)}
                 >×</button>
               </div>
             ))}
-            <button className="new-tab-button" title="新建本地终端" onClick={() => void addTerminal({ cols: 120, rows: 32, kind: "local" }, "PowerShell", "local")}>＋</button>
+            <button className="new-tab-button" title={t("新建本地终端")} onClick={() => void addTerminal({ cols: 120, rows: 32, kind: "local" }, "PowerShell", "local")}>＋</button>
           </div>
         </header>
 
         <section className="terminal-area">
           {activeTab ? (
             <div className="terminal-layout">{renderLayout(activeTab.layout, activeTab)}</div>
-          ) : <CenteredStatus message="正在准备终端…" />}
+          ) : <CenteredStatus message={t("正在准备终端…")} />}
           <footer className="terminal-status">
             <span className={writable ? "writable" : ""}>{writable ? "● INPUT" : "○ READ ONLY"}</span>
             <span>{detail}</span>
@@ -537,25 +552,25 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
         <div
           className="terminal-context-menu"
           role="menu"
-          aria-label="终端分栏"
+          aria-label={t("终端分栏")}
           style={{ left: splitMenu.x, top: splitMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
           <button
             role="menuitem"
-            aria-label="横向分栏（左右排列）"
+            aria-label={t("横向分栏（左右排列）")}
             onClick={() => void splitTerminal(splitMenu, "horizontal")}
           >
             <span className="split-menu-icon horizontal" aria-hidden="true"><i /><i /></span>
-            <span><strong>横向分栏</strong><small>左右排列 · {splitTargetDescription}</small></span>
+            <span><strong>{t("横向分栏")}</strong><small>{t("左右排列")} · {splitTargetDescription}</small></span>
           </button>
           <button
             role="menuitem"
-            aria-label="纵向分栏（上下排列）"
+            aria-label={t("纵向分栏（上下排列）")}
             onClick={() => void splitTerminal(splitMenu, "vertical")}
           >
             <span className="split-menu-icon vertical" aria-hidden="true"><i /><i /></span>
-            <span><strong>纵向分栏</strong><small>上下排列 · {splitTargetDescription}</small></span>
+            <span><strong>{t("纵向分栏")}</strong><small>{t("上下排列")} · {splitTargetDescription}</small></span>
           </button>
         </div>
       ) : null}
@@ -572,6 +587,8 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       {settingsOpen ? (
         <SettingsDialog
           shortcut={shortcut}
+          locale={locale}
+          onLocaleChange={setLocale}
           onSave={(value) => {
             localStorage.setItem(shortcutStorageKey, value);
             setShortcut(value);
@@ -610,18 +627,21 @@ function TerminalPane({
   onState(sessionId: string, state: ConnectionState, writable: boolean, detail: string): void;
   onUnavailable(): void;
 }) {
+  const { t } = useLanguage();
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | undefined>(undefined);
   const activeRef = useRef(active);
   const onContextRef = useRef(onContext);
   const onStateRef = useRef(onState);
   const onUnavailableRef = useRef(onUnavailable);
+  const tRef = useRef(t);
 
   useEffect(() => {
     onContextRef.current = onContext;
     onStateRef.current = onState;
     onUnavailableRef.current = onUnavailable;
-  }, [onContext, onState, onUnavailable]);
+    tRef.current = t;
+  }, [onContext, onState, onUnavailable, t]);
 
   useEffect(() => {
     activeRef.current = active;
@@ -702,7 +722,7 @@ function TerminalPane({
         const finishReplay = () => {
           replaying = false;
           canWrite = decoded.writable;
-          onStateRef.current(sessionId, decoded.state, decoded.writable, decoded.state === "running" ? "已连接真实 PTY" : "Shell 已退出");
+          onStateRef.current(sessionId, decoded.state, decoded.writable, decoded.state === "running" ? tRef.current("已连接真实 PTY") : tRef.current("Shell 已退出"));
           if (decoded.writable) {
             socket?.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
             if (activeRef.current) terminal.focus();
@@ -716,18 +736,18 @@ function TerminalPane({
       } else if (decoded.type === "output") terminal.write(decoded.data);
       else if (decoded.type === "writable") {
         canWrite = decoded.writable;
-        onStateRef.current(sessionId, "running", canWrite, canWrite ? "当前页面持有写入租约" : "另一页面持有写入租约");
+        onStateRef.current(sessionId, "running", canWrite, canWrite ? tRef.current("当前页面持有写入租约") : tRef.current("另一页面持有写入租约"));
       } else if (decoded.type === "exit") {
         canWrite = false;
-        onStateRef.current(sessionId, "exited", false, `Shell 已退出 (${decoded.exitCode})`);
+        onStateRef.current(sessionId, "exited", false, `${tRef.current("Shell 已退出")} (${decoded.exitCode})`);
       } else terminal.writeln(`\r\n[StackBridge] ${decoded.message}`);
     });
     socket.addEventListener("close", (event) => {
       if (disposed) return;
       canWrite = false;
-      if (event.code === 1006) onStateRef.current(sessionId, "unavailable", false, "与 Core 的连接中断");
+      if (event.code === 1006) onStateRef.current(sessionId, "unavailable", false, tRef.current("与 Core 的连接中断"));
     });
-    socket.addEventListener("error", () => onStateRef.current(sessionId, "unavailable", false, "终端连接失败"));
+    socket.addEventListener("error", () => onStateRef.current(sessionId, "unavailable", false, tRef.current("终端连接失败")));
 
     const updateContext = async () => {
       try {
@@ -770,9 +790,10 @@ function AssistantPanel({
   shortcut: string;
   onClose(): void;
 }) {
+  const { locale, t } = useLanguage();
   const [account, setAccount] = useState<AiAccountStatus>();
   const [models, setModels] = useState<CodexModel[]>([]);
-  const [model, setModel] = useState("gpt-5.6-sol");
+  const [model, setModel] = useState("gpt-5.6-luna");
   const [conversation, setConversation] = useState<ConversationSnapshot>();
   const [conversations, setConversations] = useState<ConversationSnapshot[]>([]);
   const [message, setMessage] = useState("");
@@ -798,7 +819,9 @@ function AssistantPanel({
       if (!response.ok) return;
       const data = ((await response.json()) as { data: CodexModel[] }).data;
       setModels(data);
-      const preferred = data.find((item) => item.isDefault) ?? data[0];
+      const preferred = data.find((item) => item.model === "gpt-5.6-luna")
+        ?? data.find((item) => item.isDefault)
+        ?? data[0];
       if (preferred) setModel(preferred.model);
     });
   }, [refreshAccount, refreshConversations]);
@@ -810,13 +833,13 @@ function AssistantPanel({
   async function login() {
     setError(undefined);
     try {
-      const result = await api<{ loginId: string; authUrl: string }>("/v1/ai/account/login", { method: "POST" });
+      const result = await api<{ loginId: string; authUrl: string }>("/v1/ai/account/login", { method: "POST" }, t);
       setLoginId(result.loginId);
       window.open(result.authUrl, "_blank", "noopener,noreferrer");
       const interval = window.setInterval(() => void refreshAccount(), 1_500);
       window.setTimeout(() => clearInterval(interval), 120_000);
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(errorMessage(reason, t));
     }
   }
 
@@ -828,10 +851,10 @@ function AssistantPanel({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ loginId }),
-      });
+      }, t);
       setLoginId(undefined);
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(errorMessage(reason, t));
     }
   }
 
@@ -840,7 +863,7 @@ function AssistantPanel({
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminalId, model }),
-    });
+    }, t);
     const parsed = conversationSnapshotSchema.parse(created);
     setConversation(parsed);
     await refreshConversations();
@@ -859,11 +882,11 @@ function AssistantPanel({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminalId, message: text.trim(), ...(commandIds ? { commandIds } : {}) }),
-      });
+      }, t);
       setConversation(conversationSnapshotSchema.parse(updated));
       await refreshConversations();
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(errorMessage(reason, t));
     } finally {
       setSending(false);
       setPendingMessage(undefined);
@@ -877,22 +900,22 @@ function AssistantPanel({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ schemaVersion: 2, decision }),
-      });
+      }, t);
       setConversation((current) => current && ({
         ...current,
         proposals: current.proposals.map((item) => item.id === proposal.id ? result.proposal : item),
       }));
       if (decision === "insert") window.dispatchEvent(new Event("stackbridge:terminal-focus"));
     } catch (reason) {
-      setError(errorMessage(reason));
+      setError(errorMessage(reason, t));
       if (conversation) {
-        const refreshed = await api<ConversationSnapshot>(`/v1/conversations/${conversation.id}`);
+        const refreshed = await api<ConversationSnapshot>(`/v1/conversations/${conversation.id}`, undefined, t);
         setConversation(refreshed);
       }
     }
   }
 
-  if (!account) return <aside className="assistant-panel loading-panel"><PanelHeader title="AI 助手" subtitle={shortcut} onClose={onClose} /><CenteredStatus message="正在连接 Codex…" /></aside>;
+  if (!account) return <aside className="assistant-panel loading-panel"><PanelHeader title={t("AI 助手")} subtitle={shortcut} onClose={onClose} /><CenteredStatus message={t("正在连接 Codex…")} /></aside>;
   if (!account.authenticated) {
     return (
       <aside className="assistant-panel">
@@ -901,20 +924,20 @@ function AssistantPanel({
           <div className="ai-hero">
             <div className="ai-orb"><AppIcon name="spark" /></div>
             <span className="ai-kicker">CODEX · CONTEXT AWARE</span>
-            <h2>让终端自己解释终端</h2>
-            <p>直接询问刚才的命令和输出。StackBridge 会自动带上当前主机、容器、目录和 Shell。</p>
+            <h2>{t("让终端自己解释终端")}</h2>
+            <p>{t("直接询问刚才的命令和输出。StackBridge 会自动带上当前主机、容器、目录和 Shell。")}</p>
           </div>
           <div className="ai-capabilities">
-            <div><span>01</span><p><strong>理解现场</strong><small>自动关联最近命令与输出</small></p></div>
-            <div><span>02</span><p><strong>给出命令</strong><small>建议始终固定到当前环境</small></p></div>
-            <div><span>03</span><p><strong>确认再执行</strong><small>每条命令都由你最终决定</small></p></div>
+            <div><span>01</span><p><strong>{t("理解现场")}</strong><small>{t("自动关联最近命令与输出")}</small></p></div>
+            <div><span>02</span><p><strong>{t("给出命令")}</strong><small>{t("建议始终固定到当前环境")}</small></p></div>
+            <div><span>03</span><p><strong>{t("确认再执行")}</strong><small>{t("每条命令都由你最终决定")}</small></p></div>
           </div>
           {loginId ? <>
-            <p className="form-note">授权页面已打开。完成后回到这里检查状态；若网络或地区不可用，可以取消后重试。</p>
-            <button className="primary-button" onClick={() => void refreshAccount()}>检查登录状态</button>
-            <button className="ghost-button" onClick={() => void cancelLogin()}>取消本次登录</button>
-          </> : <button className="primary-button ai-login-button" onClick={() => void login()}>使用 ChatGPT 登录 <span>↗</span></button>}
-          <p className="privacy-note">登录凭据由独立 Codex 数据目录与系统凭据库保存。</p>
+            <p className="form-note">{t("授权页面已打开。完成后回到这里检查状态；若网络或地区不可用，可以取消后重试。")}</p>
+            <button className="primary-button" onClick={() => void refreshAccount()}>{t("检查登录状态")}</button>
+            <button className="ghost-button" onClick={() => void cancelLogin()}>{t("取消本次登录")}</button>
+          </> : <button className="primary-button ai-login-button" onClick={() => void login()}>{t("使用 ChatGPT 登录")} <span>↗</span></button>}
+          <p className="privacy-note">{t("登录凭据保存在 StackBridge 独立 Codex 数据目录的认证文件中。")}</p>
           {account.error ? <p className="form-error">{account.error}</p> : null}
           {error ? <p className="form-error">{error}</p> : null}
         </div>
@@ -924,28 +947,28 @@ function AssistantPanel({
 
   return (
     <aside className="assistant-panel">
-      <PanelHeader title="AI 助手" subtitle={account.accountLabel ?? shortcut} onClose={onClose} />
+      <PanelHeader title={t("AI 助手")} subtitle={account.accountLabel ?? shortcut} onClose={onClose} />
       <div className="assistant-tools">
         <select value={model} onChange={(event) => setModel(event.target.value)} disabled={!!conversation}>
-          {(models.length ? models : [{ model: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" } as CodexModel]).map((item) => (
+          {(models.length ? models : [{ model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" } as CodexModel]).map((item) => (
             <option key={item.model} value={item.model}>{item.displayName}</option>
           ))}
         </select>
-        <button className="ghost-button compact" onClick={() => setConversation(undefined)}>＋ 新对话</button>
+        <button className="ghost-button compact" onClick={() => setConversation(undefined)}>＋ {t("新对话")}</button>
         {conversations.length ? (
           <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => {
             const selected = conversations.find((item) => item.id === event.target.value);
             setConversation(selected);
           }}>
-            <option value="">历史对话</option>
-            {conversations.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+            <option value="">{t("历史对话")}</option>
+            {conversations.map((item) => <option key={item.id} value={item.id}>{localizedConversationTitle(item.title, locale)}</option>)}
           </select>
         ) : null}
       </div>
       <div className="context-chip-row">
-        <span className={`context-chip ${context?.environment.verified === false ? "warning" : ""}`}>{context?.environment.label ?? "识别环境中"}</span>
-        <span className="context-chip">附带最近 {Math.min(3, context?.recentCommandIds.length ?? 0)} 条输出</span>
-        <details className="context-preview"><summary>检查上下文</summary><pre>{JSON.stringify({
+        <span className={`context-chip ${context?.environment.verified === false ? "warning" : ""}`}>{context ? localizedEnvironmentLabel(context.environment.label, context.environment.kind, locale) : t("识别环境中")}</span>
+        <span className="context-chip">{locale === "zh-CN" ? `附带最近 ${Math.min(3, context?.recentCommandIds.length ?? 0)} 条输出` : `Includes ${Math.min(3, context?.recentCommandIds.length ?? 0)} recent outputs`}</span>
+        <details className="context-preview"><summary>{t("检查上下文")}</summary><pre>{JSON.stringify({
           environment: context?.environment,
           cwd: context?.cwd,
           shell: context?.shell,
@@ -956,26 +979,26 @@ function AssistantPanel({
         {!conversation?.messages.length ? (
           <div className="conversation-empty">
             <div className="ai-orb small">✦</div>
-            <h3>不用复制终端输出</h3>
-            <p>直接问“刚才的错误是什么意思？”或“这个命令怎么写？”。</p>
+            <h3>{t("不用复制终端输出")}</h3>
+            <p>{t("直接问“刚才的错误是什么意思？”或“这个命令怎么写？”。")}</p>
             <div className="prompt-suggestions">
-              {["解释刚才的输出", "给我一个安全的排查命令", "当前在哪个环境？"].map((item) => (
-                <button key={item} onClick={() => void send(item)}>{item}</button>
+              {(["解释刚才的输出", "给我一个安全的排查命令", "当前在哪个环境？"] as const).map((item) => (
+                <button key={item} onClick={() => void send(t(item))}>{t(item)}</button>
               ))}
             </div>
           </div>
         ) : conversation.messages.map((item) => (
           <div key={item.id} className={`message ${item.role}`}>
-            <div className="message-role">{item.role === "user" ? "你" : item.role === "assistant" ? "AI" : "环境"}</div>
-            <div className="message-body">{item.content}</div>
+            <div className="message-role">{item.role === "user" ? t("你") : item.role === "assistant" ? "AI" : t("环境")}</div>
+            <div className="message-body">{item.role === "timeline" ? localizedSystemMessage(item.content, locale) : item.content}</div>
             {item.proposalIds?.map((id) => {
               const proposal = conversation.proposals.find((candidate) => candidate.id === id);
-              return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={decide} onExplain={(commandId) => void send("解释这条命令执行后的输出，并告诉我是否正常。", [commandId])} /> : null;
+              return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={decide} onExplain={(commandId) => void send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
             })}
           </div>
         ))}
-        {pendingMessage ? <div className="message user pending"><div className="message-role">你</div><div className="message-body">{pendingMessage}</div></div> : null}
-        {sending ? <div className="thinking"><span /><span /><span /> Codex 正在分析当前终端…</div> : null}
+        {pendingMessage ? <div className="message user pending"><div className="message-role">{t("你")}</div><div className="message-body">{pendingMessage}</div></div> : null}
+        {sending ? <div className="thinking"><span /><span /><span /> {t("Codex 正在分析当前终端…")}</div> : null}
       </div>
       {error ? <div className="panel-error">{error}</div> : null}
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
@@ -988,17 +1011,17 @@ function AssistantPanel({
               void send();
             }
           }}
-          placeholder="问当前命令、输出或下一步…"
+          placeholder={t("问当前命令、输出或下一步…")}
           disabled={sending}
           rows={3}
         />
         <div className="composer-footer">
-          <span>Enter 发送 · Shift+Enter 换行</span>
+          <span>{t("Enter 发送 · Shift+Enter 换行")}</span>
           {sending ? (
             <button type="button" className="danger-button" onClick={() => {
               if (conversation) void fetch(`/v1/conversations/${conversation.id}/stop`, { method: "POST" });
-            }}>停止</button>
-          ) : <button className="send-button" disabled={!message.trim()}>发送 ↑</button>}
+            }}>{t("停止")}</button>
+          ) : <button className="send-button" disabled={!message.trim()}>{t("发送 ↑")}</button>}
         </div>
       </form>
     </aside>
@@ -1010,22 +1033,23 @@ function ProposalCard({ proposal, onDecision, onExplain }: {
   onDecision(proposal: CommandProposal, decision: "execute" | "insert" | "reject"): void;
   onExplain(commandBlockId: string): void;
 }) {
+  const { locale, t } = useLanguage();
   return (
     <section className="proposal-card">
-      <div className="proposal-heading"><span>命令建议</span><StatusBadge status={proposal.status} /></div>
+      <div className="proposal-heading"><span>{t("命令建议")}</span><StatusBadge status={proposal.status} /></div>
       <p>{proposal.purpose}</p>
       <pre><code>{proposal.command}</code></pre>
       <div className="proposal-target">
-        <span>{proposal.environmentLabel}</span>
-        <span>{proposal.host ?? (proposal.environmentKind === "local" ? "本机" : proposal.environmentKind)}</span>
-        {proposal.containerId ? <span title={proposal.containerId}>容器 {proposal.containerId.slice(0, 12)}</span> : null}
-        <span>{proposal.user || "当前用户"}</span><span>{proposal.cwd || "当前目录"}</span><span>{proposal.shell}</span>
+        <span>{localizedEnvironmentLabel(proposal.environmentLabel, proposal.environmentKind, locale)}</span>
+        <span>{proposal.host ?? (proposal.environmentKind === "local" ? t("本机") : proposal.environmentKind)}</span>
+        {proposal.containerId ? <span title={proposal.containerId}>{t("容器")} {proposal.containerId.slice(0, 12)}</span> : null}
+        <span>{proposal.user || t("当前用户")}</span><span>{proposal.cwd || t("当前目录")}</span><span>{proposal.shell}</span>
       </div>
       {proposal.status === "pending" ? (
         <div className="proposal-actions">
-          <button className="primary-button compact" onClick={() => onDecision(proposal, "execute")}>在此终端执行</button>
-          <button className="ghost-button compact" onClick={() => onDecision(proposal, "insert")}>放入输入行</button>
-          <button className="text-button" onClick={() => onDecision(proposal, "reject")}>暂不执行</button>
+          <button className="primary-button compact" onClick={() => onDecision(proposal, "execute")}>{t("在此终端执行")}</button>
+          <button className="ghost-button compact" onClick={() => onDecision(proposal, "insert")}>{t("放入输入行")}</button>
+          <button className="text-button" onClick={() => onDecision(proposal, "reject")}>{t("暂不执行")}</button>
         </div>
       ) : proposal.operationId ? <OperationTracker id={proposal.operationId} onExplain={onExplain} /> : null}
     </section>
@@ -1033,6 +1057,7 @@ function ProposalCard({ proposal, onDecision, onExplain }: {
 }
 
 function OperationTracker({ id, onExplain }: { id: string; onExplain(commandBlockId: string): void }) {
+  const { t } = useLanguage();
   const [operation, setOperation] = useState<OperationSnapshot>();
   useEffect(() => {
     let stopped = false;
@@ -1044,12 +1069,12 @@ function OperationTracker({ id, onExplain }: { id: string; onExplain(commandBloc
     const timer = window.setInterval(() => void update(), 800);
     return () => { stopped = true; clearInterval(timer); };
   }, [id]);
-  if (!operation) return <div className="operation-row">正在提交…</div>;
+  if (!operation) return <div className="operation-row">{t("正在提交…")}</div>;
   return (
     <div className="operation-row">
       <StatusBadge status={operation.status} />
-      {operation.exitCode !== undefined ? <span>退出码 {operation.exitCode}</span> : null}
-      {operation.commandBlockId ? <button className="text-button" onClick={() => onExplain(operation.commandBlockId!)}>解释结果</button> : null}
+      {operation.exitCode !== undefined ? <span>{t("退出码")} {operation.exitCode}</span> : null}
+      {operation.commandBlockId ? <button className="text-button" onClick={() => onExplain(operation.commandBlockId!)}>{t("解释结果")}</button> : null}
     </div>
   );
 }
@@ -1058,6 +1083,7 @@ function ConnectionDialog({ onClose, onCreate }: {
   onClose(): void;
   onCreate(request: Record<string, unknown>, title: string, kind: "ssh" | "docker"): Promise<void>;
 }) {
+  const { t } = useLanguage();
   const [kind, setKind] = useState<"ssh" | "docker">("ssh");
   const [host, setHost] = useState("friden-dev-cube");
   const [port, setPort] = useState("22");
@@ -1090,54 +1116,77 @@ function ConnectionDialog({ onClose, onCreate }: {
     } catch (reason) {
       if (reason instanceof DeploymentRequired) {
         setApproval({ id: String(reason.payload.approvalId), proposal: reason.payload.proposal as Record<string, unknown> });
-      } else setError(errorMessage(reason));
+      } else setError(errorMessage(reason, t));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Modal title="新建连接" onClose={onClose}>
+    <Modal title={t("新建连接")} onClose={onClose}>
       <div className="segmented">
-        <button className={kind === "ssh" ? "active" : ""} onClick={() => setKind("ssh")}>SSH 宿主</button>
-        <button className={kind === "docker" ? "active" : ""} onClick={() => setKind("docker")}>远端 Docker</button>
+        <button className={kind === "ssh" ? "active" : ""} onClick={() => setKind("ssh")}>{t("SSH 宿主")}</button>
+        <button className={kind === "docker" ? "active" : ""} onClick={() => setKind("docker")}>{t("远端 Docker")}</button>
       </div>
       <form className="connection-form" onSubmit={(event) => void submit(event)}>
         <div className="field-grid three">
-          <Field label="主机"><input value={host} onChange={(event) => setHost(event.target.value)} required /></Field>
-          <Field label="端口"><input value={port} onChange={(event) => setPort(event.target.value)} inputMode="numeric" required /></Field>
-          <Field label="用户"><input value={user} onChange={(event) => setUser(event.target.value)} required /></Field>
+          <Field label={t("主机")}><input value={host} onChange={(event) => setHost(event.target.value)} required /></Field>
+          <Field label={t("端口")}><input value={port} onChange={(event) => setPort(event.target.value)} inputMode="numeric" required /></Field>
+          <Field label={t("用户")}><input value={user} onChange={(event) => setUser(event.target.value)} required /></Field>
         </div>
         {kind === "docker" ? <>
-          <Field label="容器名称或 ID"><input value={container} onChange={(event) => setContainer(event.target.value)} required /></Field>
+          <Field label={t("容器名称或 ID")}><input value={container} onChange={(event) => setContainer(event.target.value)} required /></Field>
           <div className="field-grid three">
             <Field label="Docker Context"><input value={contextName} onChange={(event) => setContextName(event.target.value)} required /></Field>
-            <Field label="容器用户"><input value={containerUser} onChange={(event) => setContainerUser(event.target.value)} required /></Field>
-            <Field label="工作目录"><input value={cwd} onChange={(event) => setCwd(event.target.value)} required /></Field>
+            <Field label={t("容器用户")}><input value={containerUser} onChange={(event) => setContainerUser(event.target.value)} required /></Field>
+            <Field label={t("工作目录")}><input value={cwd} onChange={(event) => setCwd(event.target.value)} required /></Field>
           </div>
         </> : null}
-        <p className="form-note">使用系统 OpenSSH 配置和密钥。Core 会先核验主机与运行实例，再打开真实交互 PTY。</p>
+        <p className="form-note">{t("使用系统 OpenSSH 配置和密钥。Core 会先核验主机与运行实例，再打开真实交互 PTY。")}</p>
         {approval ? (
           <div className="approval-box">
-            <strong>需要部署远端 Runtime</strong>
-            <p>将固定版本运行时安装到登录用户的 <code>~/.sbridge</code>。不会修改系统目录或 Shell 配置。</p>
+            <strong>{t("需要部署远端 Runtime")}</strong>
+            <p>{t("将固定版本运行时安装到登录用户的 ~/.sbridge。不会修改系统目录或 Shell 配置。")}</p>
             <dl>{Object.entries(approval.proposal).slice(0, 8).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl>
-            <button type="button" className="primary-button" disabled={busy} onClick={() => void submit(undefined, approval.id)}>确认部署并连接</button>
+            <button type="button" className="primary-button" disabled={busy} onClick={() => void submit(undefined, approval.id)}>{t("确认部署并连接")}</button>
           </div>
-        ) : <button className="primary-button" disabled={busy}>{busy ? "正在核验…" : "连接"}</button>}
+        ) : <button className="primary-button" disabled={busy}>{busy ? t("正在核验…") : t("连接")}</button>}
         {error ? <p className="form-error">{error}</p> : null}
       </form>
     </Modal>
   );
 }
 
-function SettingsDialog({ shortcut, onSave, onClose }: { shortcut: string; onSave(value: string): void; onClose(): void }) {
+function SettingsDialog({ shortcut, locale, onLocaleChange, onSave, onClose }: {
+  shortcut: string;
+  locale: "en" | "zh-CN";
+  onLocaleChange(locale: "en" | "zh-CN"): Promise<void>;
+  onSave(value: string): void;
+  onClose(): void;
+}) {
+  const { t } = useLanguage();
   const [value, setValue] = useState(shortcut);
+  const [savingLanguage, setSavingLanguage] = useState(false);
+  const [languageError, setLanguageError] = useState<string>();
   return (
-    <Modal title="工作台设置" onClose={onClose}>
-      <Field label="AI 面板快捷键"><input value={value} onChange={(event) => setValue(event.target.value)} /></Field>
-      <p className="form-note">支持 Ctrl、Shift、Alt 与单个按键，例如 Ctrl+Shift+Space。中文输入法组合期间不会拦截。</p>
-      <button className="primary-button" onClick={() => onSave(value)}>保存</button>
+    <Modal title={t("工作台设置")} onClose={onClose}>
+      <Field label={t("语言")}>
+        <select value={locale} disabled={savingLanguage} onChange={(event) => {
+          const next = event.target.value as "en" | "zh-CN";
+          setSavingLanguage(true);
+          setLanguageError(undefined);
+          void onLocaleChange(next)
+            .catch(() => setLanguageError(t("无法保存语言设置。")))
+            .finally(() => setSavingLanguage(false));
+        }}>
+          <option value="en">English</option>
+          <option value="zh-CN">简体中文</option>
+        </select>
+      </Field>
+      {languageError ? <p className="form-error">{languageError}</p> : null}
+      <Field label={t("AI 面板快捷键")}><input value={value} onChange={(event) => setValue(event.target.value)} /></Field>
+      <p className="form-note">{t("支持 Ctrl、Shift、Alt 与单个按键，例如 Ctrl+Shift+Space。中文输入法组合期间不会拦截。")}</p>
+      <button className="primary-button" onClick={() => onSave(value)}>{t("保存")}</button>
     </Modal>
   );
 }
@@ -1155,12 +1204,13 @@ function PanelHeader({ title, subtitle, onClose }: { title: string; subtitle: st
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const labels: Record<string, string> = {
+  const { t } = useLanguage();
+  const labels: Record<string, MessageKey> = {
     pending: "等待确认", accepted: "已提交", running: "执行中", completed: "完成",
     failed: "失败", interrupted: "已中断", unknown: "状态未知", inserted: "已放入输入行",
     rejected: "未执行", expired: "已过期", stale: "需要重新确认",
   };
-  return <span className={`status-badge ${status}`}>{labels[status] ?? status}</span>;
+  return <span className={`status-badge ${status}`}>{labels[status] ? t(labels[status]) : status}</span>;
 }
 
 function CenteredStatus({ message }: { message: string }) {
@@ -1173,27 +1223,33 @@ class DeploymentRequired extends Error {
   }
 }
 
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
+type Translate = (source: MessageKey) => string;
+
+async function api<T>(url: string, init: RequestInit | undefined, t: Translate): Promise<T> {
   const response = await fetch(url, init);
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) throw new Error(apiError(payload, `请求失败 (${response.status})`));
+  if (!response.ok) {
+    const fallback = t("请求失败");
+    throw new Error(apiError(payload, `${fallback} (${response.status})`, t));
+  }
   return payload as T;
 }
 
-function apiError(payload: Record<string, unknown>, fallback: string): string {
+function apiError(payload: Record<string, unknown>, fallback: string, t: Translate): string {
   if (typeof payload.message === "string") return payload.message;
   if (typeof payload.error !== "string") return fallback;
-  const messages: Record<string, string> = {
+  const messages: Record<string, MessageKey> = {
     terminal_session_limit_reached: "终端数量已达上限，请先关闭不用的标签。",
     remote_session_limit_reached: "远端连接数量已达上限，请先关闭不用的标签。",
     remote_terminals_unavailable: "远端终端服务当前不可用。",
     terminal_session_not_found: "这个终端已经关闭。",
   };
-  return messages[payload.error] ?? payload.error;
+  const message = messages[payload.error];
+  return message === undefined ? payload.error : t(message);
 }
 
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "发生未知错误";
+function errorMessage(reason: unknown, t: Translate): string {
+  return reason instanceof Error ? reason.message : t("发生未知错误");
 }
 
 function paneLayout(pane: TerminalPaneItem): PaneLayout {
@@ -1242,7 +1298,7 @@ function removePane(layout: PaneLayout, paneId: string): PaneLayout | undefined 
   return { ...layout, first, second };
 }
 
-function connectingRuntime(detail = "正在附着终端"): PaneRuntimeState {
+function connectingRuntime(detail = "Attaching terminal…"): PaneRuntimeState {
   return { connectionState: "connecting", writable: false, detail };
 }
 

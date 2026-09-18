@@ -5,6 +5,16 @@ import type {
   TerminalSessionSnapshot,
 } from "@stackbridge/protocol";
 
+import { localEnvironmentLabel } from "./environment-labels.js";
+import { dockerShellIntegrationToken } from "./shell-integration-token.js";
+
+const terminalClearSequence = "\u001b[H\u001b[2J\u001b[3J";
+
+function isTerminalClearCommand(command: string): boolean {
+  const normalized = command.trim().replace(/^command\s+/, "");
+  return normalized === "clear" || normalized === "cls";
+}
+
 export interface PtyExitEvent {
   exitCode: number;
   signal?: number;
@@ -213,7 +223,7 @@ export class TerminalSession {
       {
         id: `env.${randomUUID()}`,
         kind: "local",
-        label: "本地 Windows",
+        label: localEnvironmentLabel,
         verified: true,
         bindingId: `local.${id}`,
       },
@@ -434,6 +444,12 @@ export class TerminalSession {
       return;
     }
     if (event.type === "commandStart") {
+      // Some nested interactive shells consume `clear`'s control bytes before
+      // they reach the parent PTY. Mirror the standard clear sequence at the
+      // trusted command boundary so the visible terminal and replay agree.
+      if (isTerminalClearCommand(event.command)) {
+        this.receiveVisibleOutput(terminalClearSequence);
+      }
       if (this.activeCommand !== undefined) {
         this.finishActiveCommand(this.cwd, undefined, "unknown");
       }
@@ -586,22 +602,45 @@ const shellMarkerSuffix = "\u0007";
 
 class ShellMarkerDecoder {
   private buffer = "";
+  private readonly markers: Array<{
+    prefix: string;
+    allowEnvironmentEvents: boolean;
+  }>;
 
-  constructor(private readonly token: string) {}
+  constructor(rootToken: string) {
+    this.markers = [
+      {
+        prefix: `${shellMarkerPrefix}${rootToken};`,
+        allowEnvironmentEvents: true,
+      },
+      {
+        prefix: `${shellMarkerPrefix}${dockerShellIntegrationToken(rootToken)};`,
+        allowEnvironmentEvents: false,
+      },
+    ];
+  }
 
   feed(data: string): DecodedShellItem[] {
     this.buffer += data;
     const items: DecodedShellItem[] = [];
     while (this.buffer !== "") {
-      const authenticatedPrefix = `${shellMarkerPrefix}${this.token};`;
-      const start = this.buffer.indexOf(authenticatedPrefix);
-      if (start < 0) {
-        const keep = longestMarkerPrefixSuffix(this.buffer, authenticatedPrefix);
+      const matches = this.markers
+        .map((marker) => ({ marker, start: this.buffer.indexOf(marker.prefix) }))
+        .filter((match) => match.start >= 0)
+        .sort((left, right) => left.start - right.start);
+      const match = matches[0];
+      if (match === undefined) {
+        const keep = Math.max(
+          0,
+          ...this.markers.map((marker) => longestMarkerPrefixSuffix(this.buffer, marker.prefix)),
+        );
         const emit = this.buffer.slice(0, this.buffer.length - keep);
         this.buffer = this.buffer.slice(this.buffer.length - keep);
         if (emit !== "") items.push({ kind: "output", data: emit });
         break;
       }
+      const { prefix: authenticatedPrefix, allowEnvironmentEvents } = match.marker;
+      const { start } = match;
       if (start > 0) {
         items.push({ kind: "output", data: this.buffer.slice(0, start) });
         this.buffer = this.buffer.slice(start);
@@ -611,7 +650,10 @@ class ShellMarkerDecoder {
       const encoded = this.buffer.slice(authenticatedPrefix.length, end);
       this.buffer = this.buffer.slice(end + shellMarkerSuffix.length);
       const event = decodeShellEvent(encoded);
-      if (event === undefined) {
+      const forbiddenEnvironmentEvent = event !== undefined &&
+        !allowEnvironmentEvents &&
+        (event.type === "environmentPush" || event.type === "environmentPop");
+      if (event === undefined || forbiddenEnvironmentEvent) {
         items.push({
           kind: "output",
           data: `${authenticatedPrefix}${encoded}${shellMarkerSuffix}`,

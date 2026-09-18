@@ -6,11 +6,12 @@ import { expect, test } from "@playwright/test";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const screenshotDirectory = resolve(here, "../../../artifacts/playwright");
+const workbenchUrl = process.env.STACKBRIDGE_WEB_URL ?? "http://127.0.0.1:5173";
 
 test.beforeAll(() => mkdirSync(screenshotDirectory, { recursive: true }));
 
 test.afterEach(async ({ page }) => {
-  if (!page.url().startsWith("http://127.0.0.1:5173")) return;
+  if (!page.url().startsWith(workbenchUrl)) return;
   await page.evaluate(async () => {
     const collectPaneIds = (layout: unknown): string[] => {
       if (!layout || typeof layout !== "object") return [];
@@ -37,7 +38,51 @@ test.afterEach(async ({ page }) => {
     for (const paneId of ids) {
       await fetch(`/v1/terminal-sessions/${paneId}`, { method: "DELETE" });
     }
+    await fetch("/v1/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    localStorage.removeItem("stackbridge.locale");
   });
+});
+
+test("defaults to English and persists a Chinese language choice", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".rail-brand")).toBeVisible();
+  await page.evaluate(async () => {
+    await fetch("/v1/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ locale: "en" }),
+    });
+    localStorage.removeItem("stackbridge.locale");
+  });
+  await page.reload();
+
+  await expect(page.getByRole("button", { name: "New connection" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "AI assistant" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建连接" })).toHaveCount(0);
+  await expect(page.locator(".terminal-status")).toContainText("Connected to real PTY");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await page.getByLabel("Language").selectOption("zh-CN");
+
+  await expect(page.getByRole("button", { name: "新建连接" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "AI 助手" })).toBeVisible();
+  await expect(page.locator(".terminal-status")).toContainText("已连接真实 PTY");
+  await expect.poll(() => page.evaluate(async () => {
+    const response = await fetch("/v1/settings", { cache: "no-store" });
+    if (!response.ok) return "unavailable";
+    return ((await response.json()) as { locale?: string }).locale ?? "missing";
+  })).toBe("zh-CN");
+
+  await page.evaluate(() => localStorage.removeItem("stackbridge.locale"));
+  await page.reload();
+  await expect(page.getByRole("button", { name: "新建连接" })).toBeVisible();
+  await page.getByRole("button", { name: "设置" }).click();
+  await expect(page.getByLabel("语言")).toHaveValue("zh-CN");
 });
 
 test("opens without a launch token and drives the real terminal workbench", async ({ page }) => {
@@ -45,18 +90,25 @@ test("opens without a launch token and drives the real terminal workbench", asyn
 
   await expect(page.locator(".rail-brand")).toBeVisible();
   await expect(page.locator(".workspace-label")).toHaveCount(0);
-  await expect(page.getByText("启动令牌")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "新建连接" })).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "AI 助手" })).toHaveCount(1);
+  await expect(page.getByText("Launch token")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "New connection" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "AI assistant" })).toHaveCount(1);
   await expect(page.locator(".top-actions")).toHaveCount(0);
   await expect(page.locator(".environment-bar")).toHaveCount(0);
-  await expect(page.locator(".terminal-pane-context")).toContainText("本地 Windows");
+  await expect(page.locator(".terminal-pane-context")).toContainText("Local Windows");
   await expect(page.locator(".terminal-host .xterm")).toBeVisible();
   await expect(page.locator(".assistant-panel")).toBeVisible();
   await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
-    "本地 Windows",
+    "Local Windows",
     { timeout: 10_000 },
   );
+  const modelSelect = page.locator(".assistant-tools select").first();
+  if (await modelSelect.count()) {
+    await expect(modelSelect).toHaveValue("gpt-5.6-luna");
+    await expect(modelSelect.locator("option[value='gpt-5.6-sol']")).toHaveCount(1);
+    await expect(modelSelect.locator("option[value='gpt-5.6-terra']")).toHaveCount(1);
+    await expect(modelSelect.locator("option[value='gpt-5.6-luna']")).toHaveCount(1);
+  }
 
   const terminalInput = page.locator(".terminal-host .xterm-helper-textarea");
   await terminalInput.focus();
@@ -81,13 +133,13 @@ test("opens without a launch token and drives the real terminal workbench", asyn
 test("splits the active terminal horizontally from its context menu", async ({ page }) => {
   await page.goto("/");
 
-  const panes = page.getByRole("group", { name: "终端窗格" });
+  const panes = page.getByRole("group", { name: "Terminal pane" });
   await expect(panes).toHaveCount(1);
   await panes.first().click({ button: "right" });
 
-  const menu = page.getByRole("menu", { name: "终端分栏" });
+  const menu = page.getByRole("menu", { name: "Split terminal" });
   await expect(menu).toBeVisible();
-  await page.getByRole("menuitem", { name: "横向分栏（左右排列）" }).click();
+  await page.getByRole("menuitem", { name: "Split horizontally (side by side)" }).click();
   await expect(panes).toHaveCount(2);
 
   const firstBox = await panes.nth(0).boundingBox();
@@ -117,17 +169,17 @@ test("splits the active terminal horizontally from its context menu", async ({ p
   await expect(panes.nth(0)).toHaveClass(/active/);
   await panes.nth(1).locator(".xterm-helper-textarea").focus();
   await expect(panes.nth(1)).toHaveClass(/active/);
-  await panes.nth(1).getByRole("button", { name: "关闭 PowerShell 分栏" }).click();
+  await panes.nth(1).getByRole("button", { name: "Close PowerShell split" }).click();
   await expect(panes).toHaveCount(1);
 });
 
 test("splits the active terminal vertically from its context menu", async ({ page }) => {
   await page.goto("/");
 
-  const panes = page.getByRole("group", { name: "终端窗格" });
+  const panes = page.getByRole("group", { name: "Terminal pane" });
   await expect(panes).toHaveCount(1);
   await panes.first().click({ button: "right" });
-  await page.getByRole("menuitem", { name: "纵向分栏（上下排列）" }).click();
+  await page.getByRole("menuitem", { name: "Split vertically (stacked)" }).click();
   await expect(panes).toHaveCount(2);
 
   const firstBox = await panes.nth(0).boundingBox();
@@ -146,15 +198,15 @@ test("splits the active terminal vertically from its context menu", async ({ pag
 
 test("shows the managed SSH and Docker connection flow", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "新建连接" }).click();
-  await expect(page.getByRole("heading", { name: "新建连接" })).toBeVisible();
-  await expect(page.getByLabel("主机")).toHaveValue("friden-dev-cube");
+  await page.getByRole("button", { name: "New connection" }).click();
+  await expect(page.getByRole("heading", { name: "New connection" })).toBeVisible();
+  await expect(page.getByLabel("Host")).toHaveValue("friden-dev-cube");
 
-  await page.getByRole("button", { name: "远端 Docker" }).click();
-  await expect(page.getByLabel("容器名称或 ID")).toHaveValue(
+  await page.getByRole("button", { name: "Remote Docker" }).click();
+  await expect(page.getByLabel("Container name or ID")).toHaveValue(
     "stackbridge-m0b1-ubuntu22",
   );
-  await expect(page.getByLabel("工作目录")).toHaveValue("/workspace");
+  await expect(page.getByLabel("Working directory")).toHaveValue("/workspace");
 
   await page.screenshot({
     path: resolve(screenshotDirectory, "02-docker-connection.png"),
@@ -164,11 +216,11 @@ test("shows the managed SSH and Docker connection flow", async ({ page }) => {
 
 test("connects through the UI to verified SSH and Docker PTYs", async ({ page }) => {
   test.skip(process.env.STACKBRIDGE_E2E_REMOTE !== "1", "requires friden-dev-cube");
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "新建连接" }).click();
-  await page.locator(".connection-form").getByRole("button", { name: "连接", exact: true }).click();
+  await page.getByRole("button", { name: "New connection" }).click();
+  await page.locator(".connection-form").getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
     "friden@friden-dev-cube",
     { timeout: 30_000 },
@@ -187,9 +239,35 @@ test("connects through the UI to verified SSH and Docker PTYs", async ({ page })
     fullPage: true,
   });
 
-  await page.getByRole("button", { name: "新建连接" }).click();
-  await page.getByRole("button", { name: "远端 Docker" }).click();
-  await page.locator(".connection-form").getByRole("button", { name: "连接", exact: true }).click();
+  await sshInput.pressSequentially(
+    "docker exec -it stackbridge-m0b1-ubuntu22 bash",
+    { delay: 4 },
+  );
+  await sshInput.press("Enter");
+  await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
+    "Docker: stackbridge-m0b1-ubuntu22",
+    { timeout: 10_000 },
+  );
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
+    "Local Windows → friden@friden-dev-cube → Docker: stackbridge-m0b1-ubuntu22",
+    { timeout: 10_000 },
+  );
+  await sshInput.pressSequentially("printf 'MANAGED_SSH_DOCKER_OK\\n'", { delay: 4 });
+  await sshInput.press("Enter");
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
+    "MANAGED_SSH_DOCKER_OK",
+    { timeout: 10_000 },
+  );
+  await sshInput.pressSequentially("exit", { delay: 4 });
+  await sshInput.press("Enter");
+  await expect(page.locator(".terminal-pane-shell.active .environment-main")).not.toContainText(
+    "Docker:",
+    { timeout: 10_000 },
+  );
+
+  await page.getByRole("button", { name: "New connection" }).click();
+  await page.getByRole("button", { name: "Remote Docker" }).click();
+  await page.locator(".connection-form").getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
     "Docker: stackbridge-m0b1-ubuntu22",
     { timeout: 30_000 },
@@ -214,16 +292,16 @@ test("keeps verified SSH and Docker environment chains when splitting panes", as
   test.setTimeout(90_000);
   await page.goto("/");
 
-  await page.getByRole("button", { name: "新建连接" }).click();
-  await page.locator(".connection-form").getByRole("button", { name: "连接", exact: true }).click();
+  await page.getByRole("button", { name: "New connection" }).click();
+  await page.locator(".connection-form").getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
     "friden@friden-dev-cube",
     { timeout: 30_000 },
   );
-  const panes = page.getByRole("group", { name: "终端窗格" });
+  const panes = page.getByRole("group", { name: "Terminal pane" });
   await panes.first().click({ button: "right" });
-  await expect(page.getByRole("menu", { name: "终端分栏" })).toContainText("同一 SSH 目标");
-  await page.getByRole("menuitem", { name: "横向分栏（左右排列）" }).click();
+  await expect(page.getByRole("menu", { name: "Split terminal" })).toContainText("Same SSH target");
+  await page.getByRole("menuitem", { name: "Split horizontally (side by side)" }).click();
   await expect(panes).toHaveCount(2);
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
     "friden@friden-dev-cube",
@@ -244,16 +322,16 @@ test("keeps verified SSH and Docker environment chains when splitting panes", as
     fullPage: true,
   });
 
-  await page.getByRole("button", { name: "新建连接" }).click();
-  await page.getByRole("button", { name: "远端 Docker" }).click();
-  await page.locator(".connection-form").getByRole("button", { name: "连接", exact: true }).click();
+  await page.getByRole("button", { name: "New connection" }).click();
+  await page.getByRole("button", { name: "Remote Docker" }).click();
+  await page.locator(".connection-form").getByRole("button", { name: "Connect", exact: true }).click();
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
     "Docker: stackbridge-m0b1-ubuntu22",
     { timeout: 30_000 },
   );
   await panes.first().click({ button: "right" });
-  await expect(page.getByRole("menu", { name: "终端分栏" })).toContainText("同一 Docker 目标");
-  await page.getByRole("menuitem", { name: "纵向分栏（上下排列）" }).click();
+  await expect(page.getByRole("menu", { name: "Split terminal" })).toContainText("Same Docker target");
+  await page.getByRole("menuitem", { name: "Split vertically (stacked)" }).click();
   await expect(panes).toHaveCount(2);
   await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
     "Docker: stackbridge-m0b1-ubuntu22",
@@ -277,7 +355,19 @@ test("keeps verified SSH and Docker environment chains when splitting panes", as
 
 test("tracks a hand-typed SSH session into an interactive Docker shell", async ({ page }) => {
   test.skip(process.env.STACKBRIDGE_E2E_REMOTE !== "1", "requires friden-dev-cube");
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
+  const terminalOutputFrames: string[] = [];
+  page.on("websocket", (socket) => {
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      try {
+        const message = JSON.parse(payload) as { type?: unknown; data?: unknown };
+        if (message.type === "output" && typeof message.data === "string") {
+          terminalOutputFrames.push(message.data);
+        }
+      } catch {}
+    });
+  });
   await page.goto("/");
 
   const terminalInput = page.locator(".terminal-host .xterm-helper-textarea");
@@ -294,6 +384,16 @@ test("tracks a hand-typed SSH session into an interactive Docker shell", async (
   );
 
   await terminalInput.pressSequentially(
+    "SB_RC_BEFORE=\"$(docker exec stackbridge-m0b1-ubuntu22 /bin/sh -c 'if [ -f \"$HOME/.bashrc\" ]; then sha256sum \"$HOME/.bashrc\" | cut -d\" \" -f1; else printf MISSING; fi')\"; printf 'SB_RC_BASELINE_READY\\n'",
+    { delay: 2 },
+  );
+  await terminalInput.press("Enter");
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
+    "SB_RC_BASELINE_READY",
+    { timeout: 10_000 },
+  );
+
+  await terminalInput.pressSequentially(
     "docker exec -it stackbridge-m0b1-ubuntu22 bash",
     { delay: 8 },
   );
@@ -306,6 +406,64 @@ test("tracks a hand-typed SSH session into an interactive Docker shell", async (
     "/workspace#",
     { timeout: 10_000 },
   );
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
+    "Local Windows → SSH: friden-dev-cube → Docker: stackbridge-m0b1-ubuntu22",
+    { timeout: 10_000 },
+  );
+  const dockerBreadcrumb = "Local Windows → SSH: friden-dev-cube → Docker: stackbridge-m0b1-ubuntu22";
+  const terminalRows = page.locator(".terminal-host .xterm-rows");
+  const breadcrumbCount = async () => {
+    const text = await terminalRows.textContent();
+    return text === null ? 0 : text.split(dockerBreadcrumb).length - 1;
+  };
+
+  await terminalInput.pressSequentially("printf 'DOCKER_PROMPT_ONE\\n'", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("DOCKER_PROMPT_ONE", { timeout: 10_000 });
+  await expect.poll(breadcrumbCount, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+  await terminalInput.pressSequentially("printf 'DOCKER_PROMPT_TWO\\n'", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("DOCKER_PROMPT_TWO", { timeout: 10_000 });
+  await expect.poll(breadcrumbCount, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+  await expect.poll(async () => page.evaluate(async () => {
+    const stored = sessionStorage.getItem("stackbridge.terminalTabs.v3");
+    if (stored === null) return { count: 0, attributed: false };
+    const tabs = JSON.parse(stored) as Array<{
+      layout?: { pane?: { id?: string }; first?: unknown; second?: unknown };
+    }>;
+    const firstPaneId = (layout: unknown): string | undefined => {
+      if (!layout || typeof layout !== "object") return undefined;
+      const item = layout as {
+        type?: unknown;
+        pane?: { id?: unknown };
+        first?: unknown;
+        second?: unknown;
+      };
+      if (item.type === "pane" && typeof item.pane?.id === "string") return item.pane.id;
+      return firstPaneId(item.first) ?? firstPaneId(item.second);
+    };
+    const sessionId = firstPaneId(tabs[0]?.layout);
+    if (sessionId === undefined) return { count: 0, attributed: false };
+    const [commandsResponse, contextResponse] = await Promise.all([
+      fetch(`/v1/terminal-sessions/${sessionId}/commands?limit=100`, { cache: "no-store" }),
+      fetch(`/v1/terminal-sessions/${sessionId}/context`, { cache: "no-store" }),
+    ]);
+    if (!commandsResponse.ok || !contextResponse.ok) return { count: 0, attributed: false };
+    const commands = (await commandsResponse.json()) as {
+      data: Array<{ command?: string; environmentFrameId?: string }>;
+    };
+    const context = (await contextResponse.json()) as { environment?: { id?: string } };
+    const innerCommands = commands.data.filter((command) =>
+      command.command?.includes("DOCKER_PROMPT_")
+    );
+    return {
+      count: innerCommands.length,
+      attributed: innerCommands.every((command) =>
+        command.environmentFrameId === context.environment?.id
+      ),
+    };
+  }), { timeout: 10_000 }).toEqual({ count: 2, attributed: true });
   await page.screenshot({
     path: resolve(screenshotDirectory, "05-manual-ssh-docker-detected.png"),
     fullPage: true,
@@ -318,4 +476,91 @@ test("tracks a hand-typed SSH session into an interactive Docker shell", async (
     { timeout: 10_000 },
   );
   await expect(page.locator(".terminal-pane-shell.active .environment-meta")).toContainText("zsh");
+
+  await terminalInput.pressSequentially(
+    "test \"$SB_RC_BEFORE\" = \"$(docker exec stackbridge-m0b1-ubuntu22 /bin/sh -c 'if [ -f \"$HOME/.bashrc\" ]; then sha256sum \"$HOME/.bashrc\" | cut -d\" \" -f1; else printf MISSING; fi')\" && printf 'DOCKER_RC_UNCHANGED_OK\\n'",
+    { delay: 2 },
+  );
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("DOCKER_RC_UNCHANGED_OK", { timeout: 10_000 });
+
+  await terminalInput.pressSequentially(
+    "SB_ZSH_RC_BEFORE=\"$(docker exec pedantic_vaughan /bin/sh -c 'if [ -f \"$HOME/.zshrc\" ]; then sha256sum \"$HOME/.zshrc\" | cut -d\" \" -f1; else printf MISSING; fi')\"; printf 'SB_ZSH_RC_BASELINE_READY\\n'",
+    { delay: 2 },
+  );
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("SB_ZSH_RC_BASELINE_READY", { timeout: 10_000 });
+
+  await terminalInput.pressSequentially("docker exec -it pedantic_vaughan zsh", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
+    "Docker: pedantic_vaughan",
+    { timeout: 10_000 },
+  );
+  const zshBreadcrumb = "Local Windows → SSH: friden-dev-cube → Docker: pedantic_vaughan";
+  const zshBreadcrumbCount = async () => {
+    const text = await terminalRows.textContent();
+    return text === null ? 0 : text.split(zshBreadcrumb).length - 1;
+  };
+  await expect(terminalRows).toContainText(zshBreadcrumb, { timeout: 10_000 });
+
+  await terminalInput.pressSequentially("printf 'DOCKER_ZSH_PROMPT_ONE\\n'", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("DOCKER_ZSH_PROMPT_ONE", { timeout: 10_000 });
+  await expect.poll(zshBreadcrumbCount, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+
+  await terminalInput.pressSequentially("printf 'DOCKER_ZSH_PROMPT_TWO\\n'", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("DOCKER_ZSH_PROMPT_TWO", { timeout: 10_000 });
+  await expect.poll(zshBreadcrumbCount, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+
+  await terminalInput.pressSequentially("exit", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect(page.locator(".terminal-pane-shell.active .environment-main")).not.toContainText(
+    "Docker:",
+    { timeout: 10_000 },
+  );
+  await terminalInput.pressSequentially(
+    "test \"$SB_ZSH_RC_BEFORE\" = \"$(docker exec pedantic_vaughan /bin/sh -c 'if [ -f \"$HOME/.zshrc\" ]; then sha256sum \"$HOME/.zshrc\" | cut -d\" \" -f1; else printf MISSING; fi')\" && printf 'DOCKER_ZSH_RC_UNCHANGED_OK\\n'",
+    { delay: 2 },
+  );
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("DOCKER_ZSH_RC_UNCHANGED_OK", { timeout: 10_000 });
+
+  await terminalInput.pressSequentially("printf 'CLEAR_SENTINEL\\n'", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect(terminalRows).toContainText("CLEAR_SENTINEL", { timeout: 10_000 });
+  const clearFrameStart = terminalOutputFrames.length;
+  await terminalInput.pressSequentially("clear", { delay: 4 });
+  await terminalInput.press("Enter");
+  await expect.poll(
+    () => Buffer.from(terminalOutputFrames.slice(clearFrameStart).join(""), "utf8").toString("hex"),
+    { timeout: 10_000 },
+  ).toContain("1b5b481b5b324a1b5b334a");
+  await expect(terminalRows).not.toContainText("CLEAR_SENTINEL", { timeout: 10_000 });
+});
+
+test("uses UTF-8 for a hand-typed SSH target whose login locale is ASCII", async ({ page }) => {
+  const target = process.env.STACKBRIDGE_E2E_UTF8_SSH;
+  test.skip(!target, "requires an SSH target with an ASCII login locale");
+  test.setTimeout(45_000);
+  await page.goto("/");
+
+  const rows = page.locator(".terminal-host .xterm-rows");
+  const input = page.locator(".terminal-host .xterm-helper-textarea");
+  await input.focus();
+  await input.pressSequentially(`ssh ${target}`, { delay: 8 });
+  await input.press("Enter");
+  await expect(page.locator(".terminal-pane-shell.active .environment-main")).toContainText(
+    `SSH: ${target}`,
+    { timeout: 20_000 },
+  );
+  await expect(rows).toContainText("➜", { timeout: 20_000 });
+  await input.pressSequentially("locale charmap; printf 'UTF8_PROMPT_READY\\n'", { delay: 4 });
+  await input.press("Enter");
+
+  await expect(rows).toContainText("UTF8_PROMPT_READY", { timeout: 10_000 });
+  await expect(rows).toContainText("UTF-8", { timeout: 10_000 });
+  await expect(rows).toContainText("➜", { timeout: 10_000 });
+  await expect(rows).not.toContainText("??????");
 });
