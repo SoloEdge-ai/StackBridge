@@ -46,8 +46,20 @@ export interface AssistantController {
   stop(): void;
 }
 
-export function canChangeConversation(sending: boolean): boolean {
-  return !sending;
+type ConversationSelectionAction =
+  | { type: "select"; id: string }
+  | { type: "new" };
+
+export function transitionConversationSelection(
+  current: ConversationSnapshot | undefined,
+  conversations: ConversationSnapshot[],
+  sending: boolean,
+  action: ConversationSelectionAction,
+): ConversationSnapshot | undefined {
+  if (sending) return current;
+  return action.type === "new"
+    ? undefined
+    : conversations.find((item) => item.id === action.id);
 }
 
 export function useAssistantController(terminalId: string): AssistantController {
@@ -226,13 +238,23 @@ export function useAssistantController(terminalId: string): AssistantController 
       setDrafts((current) => ({ ...current, [targetTerminalId]: value }));
     },
     selectConversation(id) {
-      if (!canChangeConversation(sending)) return;
-      setConversation(conversations.find((item) => item.id === id));
+      if (sending) return;
+      setConversation((current) => transitionConversationSelection(
+        current,
+        conversations,
+        sending,
+        { type: "select", id },
+      ));
       setInlineMessageIds({});
     },
     newConversation() {
-      if (!canChangeConversation(sending)) return;
-      setConversation(undefined);
+      if (sending) return;
+      setConversation((current) => transitionConversationSelection(
+        current,
+        conversations,
+        sending,
+        { type: "new" },
+      ));
       setInlineMessageIds({});
     },
     refreshAccount,

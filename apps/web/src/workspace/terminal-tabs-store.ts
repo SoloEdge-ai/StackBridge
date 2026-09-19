@@ -32,12 +32,13 @@ export function readTerminalTabs(storage: TerminalTabsStorage): TerminalTab[] {
         return [];
       }
       if (!isTerminalKind(item.kind)) return [];
-      if (item.kind !== "local") return [];
       const pane: TerminalPaneItem = {
         id: item.id,
         title: item.title,
         kind: item.kind,
-        createRequest: { kind: "local", cols: 120, rows: 32 },
+        ...(item.kind === "local"
+          ? { createRequest: { kind: "local" as const, cols: 120, rows: 32 } }
+          : {}),
       };
       return [{
         id: item.id,
@@ -95,13 +96,18 @@ function parsePaneLayout(value: unknown, depth: number): PaneLayout | undefined 
     if (typeof pane.id !== "string" || typeof pane.title !== "string" || !isTerminalKind(pane.kind)) {
       return undefined;
     }
-    const request = reusableTerminalSessionRequestSchema.safeParse(pane.createRequest);
-    if (!request.success || (request.data.kind ?? "local") !== pane.kind) return undefined;
+    const request = pane.createRequest === undefined
+      ? undefined
+      : reusableTerminalSessionRequestSchema.safeParse(pane.createRequest);
+    if (request === undefined && pane.kind === "local") return undefined;
+    if (request && (!request.success || (request.data.kind ?? "local") !== pane.kind)) {
+      return undefined;
+    }
     return paneLayout({
       id: pane.id,
       title: pane.title,
       kind: pane.kind,
-      createRequest: request.data,
+      ...(request?.success ? { createRequest: request.data } : {}),
     });
   }
   if (value.type !== "split" || (value.direction !== "horizontal" && value.direction !== "vertical")) {

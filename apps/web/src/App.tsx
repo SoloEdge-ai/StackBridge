@@ -4,17 +4,12 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import {
   terminalSessionSnapshotSchema,
   type CreateTerminalSessionRequest,
 } from "@stackbridge/protocol";
-import {
-  localizedEnvironmentLabel,
-  localizedKnownText,
-  useLanguage,
-} from "./i18n.js";
+import { localizedKnownText, useLanguage } from "./i18n.js";
 import {
   findPane,
   flattenPanes,
@@ -23,7 +18,6 @@ import {
   removePane,
   reusableTerminalRequest,
   splitPane,
-  type PaneLayout,
   type SplitDirection,
   type TerminalKind,
   type TerminalPaneItem,
@@ -38,10 +32,13 @@ import {
   useAssistantController,
 } from "./assistant/use-assistant-controller.js";
 import { AssistantPanel } from "./assistant/AssistantPanel.js";
-import { InlineAssistant } from "./assistant/InlineAssistant.js";
 import { ConnectionDialog, SettingsDialog } from "./workspace/WorkspaceDialogs.js";
+import {
+  TerminalContextMenu,
+  type TerminalContextMenuState,
+} from "./workspace/TerminalContextMenu.js";
+import { TerminalLayoutView } from "./workspace/TerminalLayoutView.js";
 import { api, apiError, DeploymentRequired, errorMessage } from "./api/client.js";
-import { TerminalPane } from "./terminal/TerminalPane.js";
 import {
   connectingRuntime,
   type ConnectionState,
@@ -53,14 +50,6 @@ import {
 const shortcutStorageKey = "stackbridge.aiShortcut";
 
 type AuthState = "checking" | "unavailable" | "authenticated";
-
-interface SplitMenuState {
-  tabId: string;
-  paneId: string;
-  x: number;
-  y: number;
-}
-
 
 export function App() {
   const { t } = useLanguage();
@@ -108,7 +97,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   const [tabs, setTabs] = useState<TerminalTab[]>(() => readTerminalTabs(sessionStorage));
   const [activeId, setActiveId] = useState(() => readTerminalTabs(sessionStorage)[0]?.id ?? "");
   const [paneRuntime, setPaneRuntime] = useState<Record<string, PaneRuntimeState>>({});
-  const [splitMenu, setSplitMenu] = useState<SplitMenuState>();
+  const [splitMenu, setSplitMenu] = useState<TerminalContextMenuState>();
   const [workspaceError, setWorkspaceError] = useState<string>();
   const [aiOpen, setAiOpen] = useState(false);
   const [quickAiPaneId, setQuickAiPaneId] = useState<string>();
@@ -355,7 +344,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   }, [activeId, persistTabs, t, tabs]);
 
   const splitTerminal = useCallback(async (
-    target: SplitMenuState,
+    target: TerminalContextMenuState,
     direction: SplitDirection,
   ) => {
     setSplitMenu(undefined);
@@ -363,7 +352,10 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     try {
       const sourceTab = tabs.find((tab) => tab.id === target.tabId);
       const sourcePane = sourceTab ? findPane(sourceTab.layout, target.paneId) : undefined;
-      const sourceRequest = sourcePane?.createRequest ?? { cols: 100, rows: 28, kind: "local" };
+      const sourceRequest = sourcePane?.createRequest;
+      if (!sourceRequest) {
+        throw new Error(t("旧版恢复的远程会话无法复制分栏，请新建连接。"));
+      }
       const sourceKind = isTerminalKind(sourceRequest.kind) ? sourceRequest.kind : "local";
       const pane = await createTerminalSession(
         { ...sourceRequest, cols: 100, rows: 28 },
@@ -402,14 +394,17 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   const splitSourcePane = splitMenu && splitSource
     ? findPane(splitSource, splitMenu.paneId)
     : undefined;
-  const splitRequestKind = isTerminalKind(splitSourcePane?.createRequest.kind)
+  const splitRequestKind = isTerminalKind(splitSourcePane?.createRequest?.kind)
     ? splitSourcePane.createRequest.kind
     : "local";
-  const splitTargetDescription = splitRequestKind === "docker"
-    ? t("同一 Docker 目标 · 重新核验")
-    : splitRequestKind === "ssh"
-      ? t("同一 SSH 目标 · 重新核验")
-      : t("新 PowerShell");
+  const splitUnavailable = splitSourcePane?.createRequest === undefined;
+  const splitTargetDescription = splitUnavailable
+    ? t("旧版恢复会话 · 请新建连接")
+    : splitRequestKind === "docker"
+      ? t("同一 Docker 目标 · 重新核验")
+      : splitRequestKind === "ssh"
+        ? t("同一 SSH 目标 · 重新核验")
+        : t("新 PowerShell");
   const splitCommandId = splitMenu
     ? paneRuntime[splitMenu.paneId]?.context?.recentCommandIds.at(-1)
     : undefined;
@@ -423,96 +418,6 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       assistant.setMessage(prompt, paneId);
     }
   }, [assistant]);
-
-  const renderLayout = (layout: PaneLayout, tab: TerminalTab): ReactNode => {
-    if (layout.type === "split") {
-      return (
-        <div className={`terminal-split ${layout.direction}`}>
-          {renderLayout(layout.first, tab)}
-          {renderLayout(layout.second, tab)}
-        </div>
-      );
-    }
-    const pane = layout.pane;
-    const isActive = pane.id === tab.activePaneId;
-    const runtime = paneRuntime[pane.id] ?? connectingRuntime(t("正在附着终端"));
-    const paneContext = runtime.context;
-    const paneBreadcrumb = paneContext?.environmentStack
-      .map((item) => localizedEnvironmentLabel(item.label, item.kind, locale))
-      .join(" → ") ?? t("正在识别环境");
-    return (
-      <section
-        key={pane.id}
-        ref={(element) => handlePaneElement(pane.id, element)}
-        className={`terminal-pane-shell ${isActive ? "active" : ""}`}
-        data-terminal-session-id={pane.id}
-        role="group"
-        aria-label={t("终端窗格")}
-        onPointerDownCapture={() => activatePane(tab.id, pane.id)}
-        onFocusCapture={() => activatePane(tab.id, pane.id)}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          activatePane(tab.id, pane.id);
-          setSplitMenu({
-            tabId: tab.id,
-            paneId: pane.id,
-            x: Math.min(event.clientX, window.innerWidth - 224),
-            y: Math.min(event.clientY, window.innerHeight - 246),
-          });
-        }}
-      >
-        <header className="terminal-pane-context">
-          <div className="environment-main">
-            <span className={`status-dot ${runtime.connectionState}`} />
-            <strong title={paneBreadcrumb}>{paneBreadcrumb}</strong>
-            {paneContext === undefined
-              ? <span className="detecting-pill" title={t("正在识别环境")}>…</span>
-              : paneContext.environment.verified
-                ? <span className="verified-pill" title={t("环境已核验")}>✓</span>
-                : <span className="warning-pill" title={t("环境未核验")}>!</span>}
-          </div>
-          <div className="environment-meta">
-            <code title={paneContext?.cwd}>{paneContext?.cwd || "—"}</code>
-            <span>{paneContext?.shell || "—"}</span>
-          </div>
-          {activePaneCount > 1 ? (
-            <button
-              className="terminal-pane-close"
-              aria-label={locale === "zh-CN" ? `关闭 ${pane.title} 分栏` : `Close ${pane.title} split`}
-              title={t("关闭这个分栏")}
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={() => void closePane(tab.id, pane.id)}
-            >×</button>
-          ) : null}
-        </header>
-        <TerminalPane
-          sessionId={pane.id}
-          active={isActive}
-          onContext={handleTerminalContext}
-          onState={handleTerminalState}
-          onCursorAnchor={handleCursorAnchor}
-          onUnavailable={() => void closePane(tab.id, pane.id)}
-          quickAskShortcut={shortcut}
-        />
-        {quickAiPaneId === pane.id ? (
-          <InlineAssistant
-            assistant={assistant}
-            context={paneContext}
-            paneElement={paneElements.current.get(pane.id)}
-            cursorAnchor={cursorAnchors.current.get(pane.id)}
-            onClose={() => {
-              setQuickAiPaneId(undefined);
-              window.dispatchEvent(new Event("stackbridge:terminal-focus"));
-            }}
-            onOpenHistory={() => {
-              setQuickAiPaneId(undefined);
-              setAiOpen(true);
-            }}
-          />
-        ) : null}
-      </section>
-    );
-  };
 
   return (
     <main className={`workbench ${aiOpen ? "with-ai" : ""}`}>
@@ -564,7 +469,34 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
         <section className="terminal-area">
           {activeTab ? (
-            <div className="terminal-layout">{renderLayout(activeTab.layout, activeTab)}</div>
+            <div className="terminal-layout">
+              <TerminalLayoutView
+                layout={activeTab.layout}
+                tab={activeTab}
+                activePaneCount={activePaneCount}
+                paneRuntime={paneRuntime}
+                quickAiPaneId={quickAiPaneId}
+                assistant={assistant}
+                shortcut={shortcut}
+                paneElements={paneElements.current}
+                cursorAnchors={cursorAnchors.current}
+                onActivatePane={activatePane}
+                onOpenMenu={setSplitMenu}
+                onPaneElement={handlePaneElement}
+                onContext={handleTerminalContext}
+                onState={handleTerminalState}
+                onCursorAnchor={handleCursorAnchor}
+                onClosePane={(tabId, paneId) => void closePane(tabId, paneId)}
+                onQuickAskClose={() => {
+                  setQuickAiPaneId(undefined);
+                  window.dispatchEvent(new Event("stackbridge:terminal-focus"));
+                }}
+                onQuickAskHistory={() => {
+                  setQuickAiPaneId(undefined);
+                  setAiOpen(true);
+                }}
+              />
+            </div>
           ) : <CenteredStatus message={t("正在准备终端…")} />}
           <footer className="terminal-status">
             <span className={writable ? "writable" : ""}>{writable ? "● INPUT" : "○ READ ONLY"}</span>
@@ -587,55 +519,14 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       ) : null}
 
       {splitMenu ? (
-        <div
-          className="terminal-context-menu"
-          role="menu"
-          aria-label={t("终端操作")}
-          style={{ left: splitMenu.x, top: splitMenu.y }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            role="menuitem"
-            aria-label={t("解释最近输出")}
-            onClick={() => askAboutCommand(
-              splitMenu.paneId,
-              t("解释最近一条命令的输出，并告诉我是否正常。"),
-              splitCommandId,
-            )}
-          >
-            <span className="ai-menu-icon" aria-hidden="true">✦</span>
-            <span><strong>{t("解释最近输出")}</strong><small>{t("附带最近命令和输出")}</small></span>
-          </button>
-          <button
-            role="menuitem"
-            aria-label={t("修复最近命令")}
-            onClick={() => askAboutCommand(
-              splitMenu.paneId,
-              t("分析最近一条命令为什么失败，并给出需要确认后执行的修复命令。"),
-              splitCommandId,
-            )}
-          >
-            <span className="ai-menu-icon" aria-hidden="true">↗</span>
-            <span><strong>{t("修复最近命令")}</strong><small>{t("生成固定到当前环境的建议")}</small></span>
-          </button>
-          <div className="terminal-menu-divider" />
-          <button
-            role="menuitem"
-            aria-label={t("横向分栏（左右排列）")}
-            onClick={() => void splitTerminal(splitMenu, "horizontal")}
-          >
-            <span className="split-menu-icon horizontal" aria-hidden="true"><i /><i /></span>
-            <span><strong>{t("横向分栏")}</strong><small>{t("左右排列")} · {splitTargetDescription}</small></span>
-          </button>
-          <button
-            role="menuitem"
-            aria-label={t("纵向分栏（上下排列）")}
-            onClick={() => void splitTerminal(splitMenu, "vertical")}
-          >
-            <span className="split-menu-icon vertical" aria-hidden="true"><i /><i /></span>
-            <span><strong>{t("纵向分栏")}</strong><small>{t("上下排列")} · {splitTargetDescription}</small></span>
-          </button>
-        </div>
+        <TerminalContextMenu
+          menu={splitMenu}
+          commandId={splitCommandId}
+          splitTargetDescription={splitTargetDescription}
+          splitUnavailable={splitUnavailable}
+          onAsk={askAboutCommand}
+          onSplit={(target, direction) => void splitTerminal(target, direction)}
+        />
       ) : null}
 
       {connectionOpen ? (

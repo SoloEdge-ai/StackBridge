@@ -11,7 +11,11 @@ export interface TerminalPaneItem {
   id: string;
   title: string;
   kind: TerminalKind;
-  createRequest: ReusableTerminalSessionRequest;
+  /**
+   * The reusable connection description is absent only for tabs migrated from
+   * v2, which persisted a live session id but not the SSH/Docker parameters.
+   */
+  createRequest?: ReusableTerminalSessionRequest;
 }
 
 export type PaneLayout =

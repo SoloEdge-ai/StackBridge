@@ -20,6 +20,8 @@ const english = {
   "无法关闭终端": "Unable to close the terminal.",
   "正在创建终端": "Creating terminal…",
   "同一 Docker 目标 · 重新核验": "Same Docker target · reverify",
+  "旧版恢复会话 · 请新建连接": "Restored legacy session · create a new connection",
+  "旧版恢复的远程会话无法复制分栏，请新建连接。": "A restored legacy remote session cannot be duplicated. Create a new connection.",
   "同一 SSH 目标 · 重新核验": "Same SSH target · reverify",
   "新 PowerShell": "New PowerShell",
   "正在识别环境": "Identifying environment",

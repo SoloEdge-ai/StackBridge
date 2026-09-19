@@ -93,7 +93,7 @@ describe("terminal tabs store", () => {
     expect(readTerminalTabs(storage)).toEqual([]);
   });
 
-  it("does not migrate remote legacy tabs without reconstructible connection details", () => {
+  it("reattaches remote legacy tabs without inventing reusable connection details", () => {
     const storage = new MemoryStorage();
     storage.setItem("stackbridge.terminalTabs.v2", JSON.stringify([{
       id: "terminal-ssh",
@@ -101,8 +101,15 @@ describe("terminal tabs store", () => {
       kind: "ssh",
     }]));
 
-    expect(readTerminalTabs(storage)).toEqual([]);
-    expect(readTerminalTabs(storage)).toEqual([]);
+    const expected = [expect.objectContaining({
+      id: "terminal-ssh",
+      layout: expect.objectContaining({
+        type: "pane",
+        pane: expect.not.objectContaining({ createRequest: expect.anything() }),
+      }),
+    })];
+    expect(readTerminalTabs(storage)).toEqual(expected);
+    expect(readTerminalTabs(storage)).toEqual(expected);
     expect(storage.getItem("stackbridge.terminalTabs.v2")).toBeNull();
   });
 });
