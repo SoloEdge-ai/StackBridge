@@ -1,13 +1,13 @@
 # Windows 便携版验证记录
 
-验证日期：2026-09-18
+验证日期：2026-09-19
 
 ## 产物
 
 - 文件：`release/StackBridge-Portable-x64.exe`
 - 架构：Windows x64
-- 大小：104,176,727 bytes（99.4 MiB）
-- SHA-256：`09EBA653ED326BDD56EFC144B1494B218033DC0AE41AD5591FED4D6E400BE2F6`
+- 大小：104,175,058 bytes（99.4 MiB）
+- SHA-256：`B68E040C8D11948005320C53D9D545F23DF526BC93A05B1A3CA60B9C4A11937E`
 - 签名状态：未签名
 
 `release/` 是本地构建输出并被 Git 忽略，不提交二进制。使用 `pnpm desktop:portable` 可从已锁定依赖重新生成。
