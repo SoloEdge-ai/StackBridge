@@ -3,7 +3,6 @@ import {
   flattenPanes,
   isTerminalKind,
   paneLayout,
-  reusableTerminalRequest,
   type PaneLayout,
   type TerminalPaneItem,
   type TerminalTab,
@@ -93,13 +92,13 @@ function parsePaneLayout(value: unknown, depth: number): PaneLayout | undefined 
     if (typeof pane.id !== "string" || typeof pane.title !== "string" || !isTerminalKind(pane.kind)) {
       return undefined;
     }
+    const request = reusableTerminalSessionRequestSchema.safeParse(pane.createRequest);
+    if (!request.success || (request.data.kind ?? "local") !== pane.kind) return undefined;
     return paneLayout({
       id: pane.id,
       title: pane.title,
       kind: pane.kind,
-      createRequest: isRecord(pane.createRequest)
-        ? reusableTerminalRequest(pane.createRequest)
-        : { kind: "local", cols: 120, rows: 32 },
+      createRequest: request.data,
     });
   }
   if (value.type !== "split" || (value.direction !== "horizontal" && value.direction !== "vertical")) {
@@ -115,3 +114,4 @@ function parsePaneLayout(value: unknown, depth: number): PaneLayout | undefined 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
 }
+import { reusableTerminalSessionRequestSchema } from "@stackbridge/protocol";

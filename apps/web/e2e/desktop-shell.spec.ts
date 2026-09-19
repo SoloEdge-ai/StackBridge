@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { _electron as electron, expect, test } from "@playwright/test";
@@ -14,10 +16,15 @@ const sendF8Script = resolve(testDirectory, "fixtures/send-f8.ps1");
 
 test("loads the desktop bridge and opens Quick Ask from a Windows F8 key", async () => {
   test.skip(process.platform !== "win32", "Windows keyboard integration test");
+  const userDataDirectory = mkdtempSync(join(tmpdir(), "stackbridge-e2e-"));
 
   const app = await electron.launch({
     executablePath: electronExecutable,
     args: [desktopDirectory],
+    env: {
+      ...process.env,
+      STACKBRIDGE_USER_DATA_DIR: userDataDirectory,
+    },
   });
 
   try {
@@ -29,6 +36,11 @@ test("loads the desktop bridge and opens Quick Ask from a Windows F8 key", async
 
     await expect.poll(() => page.evaluate(() => typeof window.stackBridgeDesktop))
       .toBe("object");
+    const windowHandle = await app.evaluate(({ BrowserWindow }) => {
+      const handle = BrowserWindow.getAllWindows()[0]?.getNativeWindowHandle();
+      if (!handle) throw new Error("Launched StackBridge window was not found");
+      return handle.readBigUInt64LE().toString();
+    });
 
     execFileSync("powershell.exe", [
       "-NoProfile",
@@ -36,6 +48,8 @@ test("loads the desktop bridge and opens Quick Ask from a Windows F8 key", async
       "Bypass",
       "-File",
       sendF8Script,
+      "-WindowHandle",
+      windowHandle,
     ]);
 
     await expect(
@@ -43,5 +57,6 @@ test("loads the desktop bridge and opens Quick Ask from a Windows F8 key", async
     ).toBeFocused();
   } finally {
     await app.close();
+    rmSync(userDataDirectory, { recursive: true, force: true });
   }
 });

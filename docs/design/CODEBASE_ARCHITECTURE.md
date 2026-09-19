@@ -12,9 +12,9 @@ The product is organized around three stable boundaries. UI composition may chan
 
 - `App.tsx` is the composition root and workspace coordinator.
 - `workspace/terminal-layout.ts` owns immutable split-tree operations; `terminal-tabs-store.ts` owns persistence and legacy migration.
-- `terminal/TerminalPane.tsx` owns one xterm/WebSocket attachment. It also blocks the configured Quick Ask shortcut from entering the PTY byte stream.
+- `terminal/TerminalPane.tsx` owns one xterm/WebSocket attachment. It validates terminal context with the shared protocol schema and blocks the configured Quick Ask shortcut from entering the PTY byte stream.
 - `desktop/quick-ask-shortcut.ts` owns desktop bridge registration, browser fallback, and IME coordination.
-- `assistant/use-assistant-controller.ts` owns conversations, drafts, turns, approvals, and cancellation. Presentation lives in `assistant/AssistantPanel.tsx`.
+- `assistant/use-assistant-controller.ts` owns conversations, drafts, turns, approvals, and cancellation. Full history lives in `assistant/AssistantPanel.tsx`; cursor-anchored interaction lives in `assistant/InlineAssistant.tsx`.
 - `workspace/WorkspaceDialogs.tsx` owns connection and settings forms. API error normalization lives in `api/client.ts`.
 
 ## Core

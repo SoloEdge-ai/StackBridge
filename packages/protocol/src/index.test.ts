@@ -6,6 +6,7 @@ import {
   createConversationRequestSchema,
   createTerminalSessionRequestSchema,
   createTurnRequestSchema,
+  terminalContextSchema,
   terminalSessionSnapshotSchema,
   serverTerminalMessageSchema,
 } from "./index.js";
@@ -97,6 +98,32 @@ describe("terminal protocol", () => {
     expect(
       serverTerminalMessageSchema.parse({ type: "writable", writable: false }),
     ).toEqual({ type: "writable", writable: false });
+  });
+
+  it("validates the complete terminal context wire contract", () => {
+    expect(terminalContextSchema.parse({
+      terminalSessionId: "b0dc5ee4-b313-4af8-9acd-01ef138e51d7",
+      contextVersion: 2,
+      shellState: "idle",
+      inputVersion: 4,
+      inputEmpty: true,
+      cwd: "/workspace",
+      shell: "bash",
+      user: "root",
+      outputSequence: 128,
+      environment: {
+        id: "env.docker",
+        parentId: "env.ssh",
+        kind: "docker",
+        label: "Docker: ubuntu22",
+        verified: true,
+      },
+      environmentStack: [
+        { id: "env.local", kind: "local", label: "Local Windows", verified: true },
+        { id: "env.docker", parentId: "env.local", kind: "docker", label: "Docker: ubuntu22", verified: true },
+      ],
+      recentCommandIds: ["command.1"],
+    })).toMatchObject({ inputVersion: 4, outputSequence: 128 });
   });
 });
 

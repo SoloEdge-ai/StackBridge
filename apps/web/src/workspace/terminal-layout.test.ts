@@ -20,7 +20,7 @@ const secondPane: TerminalPaneItem = {
   id: "terminal-2",
   title: "SSH",
   kind: "ssh",
-  createRequest: { kind: "ssh", profileId: "dev" },
+  createRequest: { kind: "ssh", cols: 120, rows: 32, host: "dev", port: 22, user: "me" },
 };
 
 describe("terminal layout", () => {
@@ -37,8 +37,12 @@ describe("terminal layout", () => {
   it("removes one-time deployment approval data from reusable requests", () => {
     expect(reusableTerminalRequest({
       kind: "ssh",
-      profileId: "dev",
-      deploymentApprovalId: "approval-1",
-    })).toEqual({ kind: "ssh", profileId: "dev" });
+      cols: 120,
+      rows: 32,
+      host: "dev",
+      port: 22,
+      user: "me",
+      deploymentApprovalId: "55c3de56-cd02-4d84-a6d2-0595239bf53f",
+    })).toEqual({ kind: "ssh", cols: 120, rows: 32, host: "dev", port: 22, user: "me" });
   });
 });

@@ -68,9 +68,9 @@ export function AssistantPanel({
             <option key={item.model} value={item.model}>{item.displayName}</option>
           ))}
         </select>
-        <button className="ghost-button compact" onClick={assistant.newConversation}>＋ {t("新对话")}</button>
+        <button className="ghost-button compact" onClick={assistant.newConversation} disabled={sending}>＋ {t("新对话")}</button>
         {conversations.length ? (
-          <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)}>
+          <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)} disabled={sending}>
             <option value="">{t("历史对话")}</option>
             {conversations.map((item) => <option key={item.id} value={item.id}>{localizedConversationTitle(item.title, locale)}</option>)}
           </select>

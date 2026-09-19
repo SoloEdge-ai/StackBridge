@@ -1,10 +1,11 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import type { CreateTerminalSessionRequest } from "@stackbridge/protocol";
 import { DeploymentRequired, errorMessage } from "../api/client.js";
 import { useLanguage } from "../i18n.js";
 
 export function ConnectionDialog({ onClose, onCreate }: {
   onClose(): void;
-  onCreate(request: Record<string, unknown>, title: string, kind: "ssh" | "docker"): Promise<void>;
+  onCreate(request: CreateTerminalSessionRequest, title: string, kind: "ssh" | "docker"): Promise<void>;
 }) {
   const { t } = useLanguage();
   const [kind, setKind] = useState<"ssh" | "docker">("ssh");

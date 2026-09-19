@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { readTerminalTabs, writeTerminalTabs } from "./terminal-tabs-store.js";
+import type { TerminalTab } from "./terminal-layout.js";
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem"> {
   private readonly values = new Map<string, string>();
@@ -21,7 +22,7 @@ class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem
 describe("terminal tabs store", () => {
   it("round-trips split terminal layouts", () => {
     const storage = new MemoryStorage();
-    const tabs = [{
+    const tabs: TerminalTab[] = [{
       id: "tab-1",
       title: "PowerShell",
       kind: "local" as const,
@@ -44,7 +45,7 @@ describe("terminal tabs store", () => {
             id: "terminal-2",
             title: "SSH",
             kind: "ssh" as const,
-            createRequest: { kind: "ssh", profileId: "dev" },
+            createRequest: { kind: "ssh", cols: 120, rows: 32, host: "dev", port: 22, user: "me" },
           },
         },
       },
@@ -69,5 +70,26 @@ describe("terminal tabs store", () => {
       activePaneId: "terminal-1",
     })]);
     expect(storage.getItem("stackbridge.terminalTabs.v2")).toBeNull();
+  });
+
+  it("drops persisted panes whose creation request does not match their kind", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("stackbridge.terminalTabs.v3", JSON.stringify([{
+      id: "tab-1",
+      title: "SSH",
+      kind: "ssh",
+      activePaneId: "terminal-1",
+      layout: {
+        type: "pane",
+        pane: {
+          id: "terminal-1",
+          title: "SSH",
+          kind: "ssh",
+          createRequest: { kind: "local", cols: 120, rows: 32 },
+        },
+      },
+    }]));
+
+    expect(readTerminalTabs(storage)).toEqual([]);
   });
 });

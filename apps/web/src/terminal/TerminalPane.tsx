@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import { terminalContextSchema } from "@stackbridge/protocol";
 import { matchesBrowserShortcut } from "../desktop/quick-ask-shortcut.js";
 import { useLanguage } from "../i18n.js";
 import { decodeServerMessage } from "./terminal-stream.js";
@@ -183,7 +184,7 @@ export function TerminalPane({
           }
           return;
         }
-        if (response.ok) onContextRef.current(sessionId, await response.json() as TerminalContext);
+        if (response.ok) onContextRef.current(sessionId, terminalContextSchema.parse(await response.json()));
       } catch {}
     };
     void updateContext();

@@ -46,6 +46,16 @@ export type CreateTerminalSessionRequest = z.infer<
   typeof createTerminalSessionRequestSchema
 >;
 
+export const reusableTerminalSessionRequestSchema = z.union([
+  sshTerminalSessionRequestSchema.omit({ deploymentApprovalId: true }),
+  dockerTerminalSessionRequestSchema.omit({ deploymentApprovalId: true }),
+  localTerminalSessionRequestSchema,
+]);
+
+export type ReusableTerminalSessionRequest = z.infer<
+  typeof reusableTerminalSessionRequestSchema
+>;
+
 export const terminalSessionSnapshotSchema = z.object({
   id: z.uuid(),
   state: z.enum(["running", "exited"]),
@@ -59,6 +69,36 @@ export const terminalSessionSnapshotSchema = z.object({
 export type TerminalSessionSnapshot = z.infer<
   typeof terminalSessionSnapshotSchema
 >;
+
+export const terminalEnvironmentSchema = z.object({
+  id: z.string().min(1),
+  parentId: z.string().min(1).optional(),
+  kind: z.enum(["local", "ssh", "docker"]),
+  label: z.string(),
+  verified: z.boolean(),
+  bindingId: z.string().min(1).optional(),
+  host: z.string().optional(),
+  containerId: z.string().optional(),
+}).strict();
+
+export type TerminalEnvironment = z.infer<typeof terminalEnvironmentSchema>;
+
+export const terminalContextSchema = z.object({
+  terminalSessionId: z.uuid(),
+  contextVersion: z.number().int().nonnegative(),
+  shellState: z.enum(["idle", "running", "foreground", "unknown"]),
+  inputVersion: z.number().int().nonnegative(),
+  inputEmpty: z.boolean(),
+  cwd: z.string(),
+  shell: z.string(),
+  user: z.string(),
+  outputSequence: z.number().int().nonnegative(),
+  environment: terminalEnvironmentSchema,
+  environmentStack: z.array(terminalEnvironmentSchema),
+  recentCommandIds: z.array(z.string()),
+}).strict();
+
+export type TerminalContext = z.infer<typeof terminalContextSchema>;
 
 export const clientTerminalMessageSchema = z.discriminatedUnion("type", [
   z.object({

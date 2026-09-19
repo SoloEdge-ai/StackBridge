@@ -222,10 +222,12 @@ export function useAssistantController(terminalId: string): AssistantController 
       setDrafts((current) => ({ ...current, [targetTerminalId]: value }));
     },
     selectConversation(id) {
+      if (sending) return;
       setConversation(conversations.find((item) => item.id === id));
       setInlineMessageIds({});
     },
     newConversation() {
+      if (sending) return;
       setConversation(undefined);
       setInlineMessageIds({});
     },

@@ -2,8 +2,12 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 import type {
   ServerTerminalMessage,
+  TerminalContext,
+  TerminalEnvironment,
   TerminalSessionSnapshot,
 } from "@stackbridge/protocol";
+
+export type { TerminalContext, TerminalEnvironment } from "@stackbridge/protocol";
 
 import { localEnvironmentLabel } from "./environment-labels.js";
 import { dockerShellIntegrationToken } from "./shell-integration-token.js";
@@ -48,33 +52,7 @@ export interface TerminalSessionAttachment {
   detach: () => void;
 }
 
-export type ShellState = "idle" | "running" | "foreground" | "unknown";
-
-export interface TerminalEnvironment {
-  id: string;
-  parentId?: string;
-  kind: "local" | "ssh" | "docker";
-  label: string;
-  verified: boolean;
-  bindingId?: string;
-  host?: string;
-  containerId?: string;
-}
-
-export interface TerminalContext {
-  terminalSessionId: string;
-  contextVersion: number;
-  shellState: ShellState;
-  inputVersion: number;
-  inputEmpty: boolean;
-  cwd: string;
-  shell: string;
-  user: string;
-  outputSequence: number;
-  environment: TerminalEnvironment;
-  environmentStack: TerminalEnvironment[];
-  recentCommandIds: string[];
-}
+export type ShellState = TerminalContext["shellState"];
 
 export interface CommandBlock {
   id: string;

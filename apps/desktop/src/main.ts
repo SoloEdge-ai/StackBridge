@@ -21,7 +21,12 @@ const setCompositionActiveChannel = "stackbridge:set-composition-active";
 const maximumShortcutLength = 64;
 
 app.setName("StackBridge");
-app.setPath("userData", join(app.getPath("appData"), "StackBridge"));
+app.setPath(
+  "userData",
+  process.env.STACKBRIDGE_USER_DATA_DIR
+    ? resolve(process.env.STACKBRIDGE_USER_DATA_DIR)
+    : join(app.getPath("appData"), "StackBridge"),
+);
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 let mainWindow: BrowserWindow | undefined;

@@ -1,3 +1,9 @@
+import {
+  reusableTerminalSessionRequestSchema,
+  type CreateTerminalSessionRequest,
+  type ReusableTerminalSessionRequest,
+} from "@stackbridge/protocol";
+
 export type TerminalKind = "local" | "ssh" | "docker";
 export type SplitDirection = "horizontal" | "vertical";
 
@@ -5,7 +11,7 @@ export interface TerminalPaneItem {
   id: string;
   title: string;
   kind: TerminalKind;
-  createRequest: Record<string, unknown>;
+  createRequest: ReusableTerminalSessionRequest;
 }
 
 export type PaneLayout =
@@ -30,10 +36,11 @@ export function paneLayout(pane: TerminalPaneItem): PaneLayout {
 }
 
 export function reusableTerminalRequest(
-  body: Record<string, unknown>,
-): Record<string, unknown> {
-  const { deploymentApprovalId: _deploymentApprovalId, ...request } = body;
-  return request;
+  body: CreateTerminalSessionRequest,
+): ReusableTerminalSessionRequest {
+  const request: Record<string, unknown> = { ...body };
+  delete request.deploymentApprovalId;
+  return reusableTerminalSessionRequestSchema.parse(request);
 }
 
 export function flattenPanes(layout: PaneLayout): TerminalPaneItem[] {
