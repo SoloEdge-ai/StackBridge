@@ -1,5 +1,7 @@
 # Warp AI / Agent 与终端输入的交互调研（2026）
 
+> 产品决策更新：StackBridge 现在只使用可配置的应用快捷键（默认 `F8`）唤醒 AI。下文的 `/ai` 与字符触发方案仅保留为历史调研，不是待实现功能；终端字符始终原样交给真实 Shell。
+
 > 调研日期：2026-09-18<br>
 > 范围：Warp Terminal（用户所说的 “wrap” 按上下文理解为 Warp）当前桌面端交互，并回看旧版 `#` Generate 入口。<br>
 > 来源策略：只采用 Warp 官方文档、官方 Changelog 和官方博客；事实与对 StackBridge 的建议分开陈述。

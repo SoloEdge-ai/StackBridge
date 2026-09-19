@@ -5,7 +5,6 @@ import {
   remoteExecutionRequestSchema,
   type CreateRemoteSessionRequest,
   type DeploymentProposal,
-  type RemoteExecutionRequest,
   type RemoteExecutionResult,
   type RemoteSessionSnapshot,
 } from "@stackbridge/protocol";

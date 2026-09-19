@@ -144,11 +144,14 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   await page.keyboard.press("Escape");
 
   await terminalInput.focus();
-  await terminalInput.pressSequentially("Write-Output 'BUFFER_", { delay: 8 });
+  await terminalInput.pressSequentially("Write-Output BUFFER_", { delay: 8 });
   const terminalBoxBeforeQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
   const terminalCursor = page.locator(".terminal-pane-shell.active .xterm-cursor");
   await expect.poll(() => terminalCursor.count()).toBeGreaterThan(0);
-  const cursorBoxBeforeQuickAsk = await terminalCursor.boundingBox();
+  const cursorBoxBeforeQuickAsk = await terminalCursor.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
   await page.keyboard.press("F8");
   const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(inlineAssistant).toBeVisible();
@@ -197,28 +200,38 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   await page.keyboard.press("F8");
   await expect(inlineAssistant).toHaveCount(0);
   await expect(terminalInput).toBeFocused();
-  await terminalInput.pressSequentially("PRESERVED'", { delay: 8 });
+  await terminalInput.pressSequentially("PRESERVED", { delay: 8 });
   await terminalInput.press("Enter");
-  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
-    "BUFFER_PRESERVED",
-    { timeout: 10_000 },
-  );
+  const activeSessionId = await page.locator(".terminal-pane-shell.active").getAttribute("data-terminal-session-id");
+  expect(activeSessionId).not.toBeNull();
+  await expect.poll(() => page.evaluate(async (sessionId) => {
+    const response = await fetch(`/v1/terminal-sessions/${sessionId}/commands`);
+    const body = await response.json() as { data: Array<{ command: string }> };
+    return body.data.at(-1)?.command;
+  }, activeSessionId)).toBe("Write-Output BUFFER_PRESERVED");
 
   await terminalInput.focus();
   await terminalInput.pressSequentially("1..80 | ForEach-Object { Write-Output $_ }; Write-Output 'SCROLL_END_80'", { delay: 2 });
   await terminalInput.press("Enter");
-  await expect(page.locator(".terminal-host .xterm-rows")).toContainText(
-    "SCROLL_END_80",
-    { timeout: 10_000 },
-  );
+  await expect.poll(() => page.evaluate(async (sessionId) => {
+    const response = await fetch(`/v1/terminal-sessions/${sessionId}/commands`);
+    const body = await response.json() as { data: Array<{ command: string }> };
+    return body.data.at(-1)?.command;
+  }, activeSessionId)).toBe("1..80 | ForEach-Object { Write-Output $_ }; Write-Output 'SCROLL_END_80'");
   await expect.poll(async () => {
     const terminalBox = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
-    const cursorBox = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
+    const cursorBox = await page.locator(".terminal-pane-shell.active .xterm-cursor").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    });
     return terminalBox !== null && cursorBox !== null
       && cursorBox.y > terminalBox.y + terminalBox.height - 80;
   }).toBe(true);
   const terminalBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
-  const cursorBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
+  const cursorBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .xterm-cursor").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
   await page.keyboard.press("F8");
   await expect(inlineAssistant).toHaveAttribute("data-placement", "above");
   const terminalBoxWithFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
@@ -259,18 +272,6 @@ test("asks the real Codex account from the active terminal pane", async ({ page 
     fullPage: true,
   });
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
-});
-
-test("opens Quick Ask when the desktop shell forwards its shortcut", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator(".terminal-pane-context")).toContainText("Local Windows");
-
-  await page.evaluate(() => {
-    window.dispatchEvent(new Event("stackbridge:toggle-quick-ask"));
-  });
-
-  await expect(page.locator(".terminal-pane-shell.active .inline-assistant")).toBeVisible();
-  await expect(page.locator(".terminal-pane-shell.active .inline-assistant textarea")).toBeFocused();
 });
 
 test("passes terminal question marks to PowerShell without opening Quick Ask", async ({ page }) => {

@@ -10,7 +10,7 @@
     "build": "tsup --config tsup.config.ts",
     "start": "pnpm build && electron .",
     "package:portable": "electron-builder --win portable --x64 --publish never",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

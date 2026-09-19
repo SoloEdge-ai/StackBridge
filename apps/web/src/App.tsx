@@ -5,67 +5,55 @@ import {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
   type ReactNode,
   type RefObject,
 } from "react";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
 import {
-  conversationSnapshotSchema,
-  serverTerminalMessageSchema,
   terminalSessionSnapshotSchema,
-  type AiAccountStatus,
-  type ApprovalDecisionRequest,
-  type CommandProposal,
-  type ConversationSnapshot,
-  type OperationSnapshot,
 } from "@stackbridge/protocol";
 import {
-  localizedConversationTitle,
   localizedEnvironmentLabel,
   localizedKnownText,
-  localizedSystemMessage,
-  type MessageKey,
   useLanguage,
 } from "./i18n.js";
+import {
+  findPane,
+  flattenPanes,
+  isTerminalKind,
+  paneLayout,
+  removePane,
+  reusableTerminalRequest,
+  splitPane,
+  type PaneLayout,
+  type SplitDirection,
+  type TerminalKind,
+  type TerminalPaneItem,
+  type TerminalTab,
+} from "./workspace/terminal-layout.js";
+import {
+  readTerminalTabs,
+  writeTerminalTabs,
+} from "./workspace/terminal-tabs-store.js";
+import { useQuickAskShortcut } from "./desktop/quick-ask-shortcut.js";
+import {
+  useAssistantController,
+  type AssistantController,
+} from "./assistant/use-assistant-controller.js";
+import { AssistantPanel, ProposalCard } from "./assistant/AssistantPanel.js";
+import { ConnectionDialog, SettingsDialog } from "./workspace/WorkspaceDialogs.js";
+import { api, apiError, DeploymentRequired, errorMessage } from "./api/client.js";
+import { TerminalPane } from "./terminal/TerminalPane.js";
+import {
+  connectingRuntime,
+  type ConnectionState,
+  type PaneRuntimeState,
+  type TerminalContext,
+  type TerminalCursorAnchor,
+} from "./terminal/types.js";
 
-const tabsStorageKey = "stackbridge.terminalTabs.v3";
-const legacyTabsStorageKey = "stackbridge.terminalTabs.v2";
 const shortcutStorageKey = "stackbridge.aiShortcut";
 
 type AuthState = "checking" | "unavailable" | "authenticated";
-type ConnectionState = "connecting" | "running" | "exited" | "unavailable";
-type TerminalKind = "local" | "ssh" | "docker";
-type SplitDirection = "horizontal" | "vertical";
-type ApprovalDecision = ApprovalDecisionRequest["decision"];
-type ConversationMessage = ConversationSnapshot["messages"][number];
-
-interface TerminalPaneItem {
-  id: string;
-  title: string;
-  kind: TerminalKind;
-  createRequest: Record<string, unknown>;
-}
-
-type PaneLayout =
-  | { type: "pane"; pane: TerminalPaneItem }
-  | { type: "split"; direction: SplitDirection; first: PaneLayout; second: PaneLayout };
-
-interface TerminalTab {
-  id: string;
-  title: string;
-  kind: TerminalKind;
-  layout: PaneLayout;
-  activePaneId: string;
-}
-
-interface PaneRuntimeState {
-  context?: TerminalContext;
-  connectionState: ConnectionState;
-  writable: boolean;
-  detail: string;
-}
 
 interface SplitMenuState {
   tabId: string;
@@ -74,270 +62,6 @@ interface SplitMenuState {
   y: number;
 }
 
-interface TerminalEnvironment {
-  id: string;
-  kind: "local" | "ssh" | "docker";
-  label: string;
-  verified: boolean;
-  bindingId?: string;
-  host?: string;
-  containerId?: string;
-}
-
-interface TerminalContext {
-  terminalSessionId: string;
-  contextVersion: number;
-  shellState: "idle" | "running" | "foreground" | "unknown";
-  inputEmpty: boolean;
-  cwd: string;
-  shell: string;
-  user: string;
-  environment: TerminalEnvironment;
-  environmentStack: TerminalEnvironment[];
-  recentCommandIds: string[];
-}
-
-interface TerminalCursorAnchor {
-  getCursorRect(): DOMRect | undefined;
-  observe(listener: () => void): () => void;
-}
-
-interface CodexModel {
-  id: string;
-  model: string;
-  displayName: string;
-  description: string;
-  isDefault: boolean;
-}
-
-interface AssistantController {
-  account: AiAccountStatus | undefined;
-  models: CodexModel[];
-  model: string;
-  conversation: ConversationSnapshot | undefined;
-  conversations: ConversationSnapshot[];
-  message: string;
-  pendingMessage: string | undefined;
-  pendingTerminalId: string | undefined;
-  inlineAssistantMessage: ConversationMessage | undefined;
-  sending: boolean;
-  error: string | undefined;
-  errorTerminalId: string | undefined;
-  loginId: string | undefined;
-  setModel(value: string): void;
-  setMessage(value: string, terminalIdOverride?: string): void;
-  selectConversation(id: string): void;
-  newConversation(): void;
-  refreshAccount(): Promise<void>;
-  login(): Promise<void>;
-  cancelLogin(): Promise<void>;
-  send(text?: string, commandIds?: string[], terminalIdOverride?: string): Promise<void>;
-  decide(proposal: CommandProposal, decision: ApprovalDecision): Promise<void>;
-  stop(): void;
-}
-
-function useAssistantController(terminalId: string): AssistantController {
-  const { t } = useLanguage();
-  const [account, setAccount] = useState<AiAccountStatus>();
-  const [models, setModels] = useState<CodexModel[]>([]);
-  const [model, setModel] = useState("gpt-5.6-luna");
-  const [conversation, setConversation] = useState<ConversationSnapshot>();
-  const [conversations, setConversations] = useState<ConversationSnapshot[]>([]);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [pendingMessage, setPendingMessage] = useState<string>();
-  const [pendingTerminalId, setPendingTerminalId] = useState<string>();
-  const [inlineMessageIds, setInlineMessageIds] = useState<Record<string, string>>({});
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string>();
-  const [errorTerminalId, setErrorTerminalId] = useState<string>();
-  const [loginId, setLoginId] = useState<string>();
-  const turnRequestVersion = useRef(0);
-  const activeTurnConversationId = useRef<string | undefined>(undefined);
-
-  const refreshAccount = useCallback(async () => {
-    const response = await fetch("/v1/ai/account/status", { cache: "no-store" });
-    setAccount(await response.json() as AiAccountStatus);
-  }, []);
-  const refreshConversations = useCallback(async () => {
-    const response = await fetch("/v1/conversations", { cache: "no-store" });
-    if (response.ok) setConversations(((await response.json()) as { data: ConversationSnapshot[] }).data);
-  }, []);
-
-  useEffect(() => {
-    void refreshAccount();
-    void refreshConversations();
-    void fetch("/v1/ai/models", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) return;
-      const data = ((await response.json()) as { data: CodexModel[] }).data;
-      setModels(data);
-      const preferred = data.find((item) => item.model === "gpt-5.6-luna")
-        ?? data.find((item) => item.isDefault)
-        ?? data[0];
-      if (preferred) setModel(preferred.model);
-    });
-  }, [refreshAccount, refreshConversations]);
-
-  const createConversation = useCallback(async (targetTerminalId: string): Promise<ConversationSnapshot> => {
-    if (!targetTerminalId) throw new Error(t("正在准备终端…"));
-    const created = await api<ConversationSnapshot>("/v1/conversations", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, model }),
-    }, t);
-    const parsed = conversationSnapshotSchema.parse(created);
-    setConversation(parsed);
-    await refreshConversations();
-    return parsed;
-  }, [model, refreshConversations, t]);
-
-  async function login() {
-    setError(undefined);
-    setErrorTerminalId(undefined);
-    try {
-      const result = await api<{ loginId: string; authUrl: string }>("/v1/ai/account/login", { method: "POST" }, t);
-      setLoginId(result.loginId);
-      window.open(result.authUrl, "_blank", "noopener,noreferrer");
-      const interval = window.setInterval(() => void refreshAccount(), 1_500);
-      window.setTimeout(() => clearInterval(interval), 120_000);
-    } catch (reason) {
-      setError(errorMessage(reason, t));
-    }
-  }
-
-  async function cancelLogin() {
-    if (!loginId) return;
-    setError(undefined);
-    setErrorTerminalId(undefined);
-    try {
-      await api("/v1/ai/account/login/cancel", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ loginId }),
-      }, t);
-      setLoginId(undefined);
-    } catch (reason) {
-      setError(errorMessage(reason, t));
-    }
-  }
-
-  const message = drafts[terminalId] ?? "";
-  const inlineAssistantMessage = conversation?.messages.find(
-    (item) => item.id === inlineMessageIds[terminalId] && item.role === "assistant",
-  );
-  async function send(text?: string, commandIds?: string[], terminalIdOverride?: string) {
-    const targetTerminalId = terminalIdOverride ?? terminalId;
-    const prompt = text ?? drafts[targetTerminalId] ?? "";
-    if (!prompt.trim() || sending) return;
-    const requestVersion = ++turnRequestVersion.current;
-    setSending(true);
-    setError(undefined);
-    setErrorTerminalId(undefined);
-    setPendingMessage(prompt.trim());
-    setPendingTerminalId(targetTerminalId);
-    setDrafts((current) => ({ ...current, [targetTerminalId]: "" }));
-    try {
-      const current = conversation ?? await createConversation(targetTerminalId);
-      if (turnRequestVersion.current !== requestVersion) return;
-      activeTurnConversationId.current = current.id;
-      const updated = await api<ConversationSnapshot>(`/v1/conversations/${current.id}/turns`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, message: prompt.trim(), ...(commandIds ? { commandIds } : {}) }),
-      }, t);
-      const parsed = conversationSnapshotSchema.parse(updated);
-      if (turnRequestVersion.current === requestVersion) {
-        setConversation(parsed);
-        const assistantMessage = [...parsed.messages].reverse().find((item) => item.role === "assistant");
-        if (assistantMessage) {
-          setInlineMessageIds((current) => ({ ...current, [targetTerminalId]: assistantMessage.id }));
-        }
-        await refreshConversations();
-      }
-    } catch (reason) {
-      if (turnRequestVersion.current === requestVersion) {
-        setError(errorMessage(reason, t));
-        setErrorTerminalId(targetTerminalId);
-      }
-    } finally {
-      if (turnRequestVersion.current === requestVersion) {
-        setSending(false);
-        setPendingMessage(undefined);
-        setPendingTerminalId(undefined);
-        activeTurnConversationId.current = undefined;
-      }
-    }
-  }
-
-  async function decide(proposal: CommandProposal, decision: ApprovalDecision) {
-    setError(undefined);
-    setErrorTerminalId(undefined);
-    try {
-      const result = await api<{ proposal: CommandProposal }>(`/v1/approvals/${proposal.id}/decision`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 2, decision }),
-      }, t);
-      setConversation((current) => current && ({
-        ...current,
-        proposals: current.proposals.map((item) => item.id === proposal.id ? result.proposal : item),
-      }));
-      if (decision === "insert") window.dispatchEvent(new Event("stackbridge:terminal-focus"));
-    } catch (reason) {
-      setError(errorMessage(reason, t));
-      setErrorTerminalId(proposal.terminalSessionId);
-      if (conversation) {
-        const refreshed = await api<ConversationSnapshot>(`/v1/conversations/${conversation.id}`, undefined, t);
-        setConversation(refreshed);
-      }
-    }
-  }
-
-  return {
-    account,
-    models,
-    model,
-    conversation,
-    conversations,
-    message,
-    pendingMessage,
-    pendingTerminalId,
-    inlineAssistantMessage,
-    sending,
-    error,
-    errorTerminalId,
-    loginId,
-    setModel,
-    setMessage(value, terminalIdOverride) {
-      const targetTerminalId = terminalIdOverride ?? terminalId;
-      setDrafts((current) => ({ ...current, [targetTerminalId]: value }));
-    },
-    selectConversation(id) {
-      setConversation(conversations.find((item) => item.id === id));
-      setInlineMessageIds({});
-    },
-    newConversation() {
-      setConversation(undefined);
-      setInlineMessageIds({});
-    },
-    refreshAccount,
-    login,
-    cancelLogin,
-    send,
-    decide,
-    stop() {
-      const conversationId = activeTurnConversationId.current ?? conversation?.id;
-      turnRequestVersion.current += 1;
-      if (pendingMessage && pendingTerminalId) {
-        setDrafts((current) => ({ ...current, [pendingTerminalId]: pendingMessage }));
-      }
-      setSending(false);
-      setPendingMessage(undefined);
-      setPendingTerminalId(undefined);
-      activeTurnConversationId.current = undefined;
-      if (conversationId) void fetch(`/v1/conversations/${conversationId}/stop`, { method: "POST" });
-    },
-  };
-}
 
 export function App() {
   const { t } = useLanguage();
@@ -382,8 +106,8 @@ export function App() {
 
 function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void }) {
   const { locale, setLocale, t } = useLanguage();
-  const [tabs, setTabs] = useState<TerminalTab[]>(readStoredTabs);
-  const [activeId, setActiveId] = useState(() => readStoredTabs()[0]?.id ?? "");
+  const [tabs, setTabs] = useState<TerminalTab[]>(() => readTerminalTabs(sessionStorage));
+  const [activeId, setActiveId] = useState(() => readTerminalTabs(sessionStorage)[0]?.id ?? "");
   const [paneRuntime, setPaneRuntime] = useState<Record<string, PaneRuntimeState>>({});
   const [splitMenu, setSplitMenu] = useState<SplitMenuState>();
   const [workspaceError, setWorkspaceError] = useState<string>();
@@ -408,7 +132,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
   const persistTabs = useCallback((next: TerminalTab[]) => {
     setTabs(next);
-    sessionStorage.setItem(tabsStorageKey, JSON.stringify(next));
+    writeTerminalTabs(sessionStorage, next);
   }, []);
 
   const createTerminalSession = useCallback(async (
@@ -478,37 +202,10 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     }
   }, [activeId, quickAiPaneId, tabs]);
 
-  useEffect(() => {
-    const handleDesktopToggle = () => toggleQuickAsk();
-    window.addEventListener("stackbridge:toggle-quick-ask", handleDesktopToggle);
-    const removeDesktopListener = window.stackBridgeDesktop?.onToggleQuickAsk(handleDesktopToggle);
-    window.stackBridgeDesktop?.setQuickAskShortcut(shortcut);
-    return () => {
-      window.removeEventListener("stackbridge:toggle-quick-ask", handleDesktopToggle);
-      removeDesktopListener?.();
-    };
-  }, [shortcut, toggleQuickAsk]);
-
-  useEffect(() => {
-    const handleCompositionStart = () => window.stackBridgeDesktop?.setCompositionActive(true);
-    const handleCompositionEnd = () => window.stackBridgeDesktop?.setCompositionActive(false);
-    window.addEventListener("compositionstart", handleCompositionStart, true);
-    window.addEventListener("compositionend", handleCompositionEnd, true);
-    return () => {
-      window.removeEventListener("compositionstart", handleCompositionStart, true);
-      window.removeEventListener("compositionend", handleCompositionEnd, true);
-      window.stackBridgeDesktop?.setCompositionActive(false);
-    };
-  }, []);
+  useQuickAskShortcut(shortcut, toggleQuickAsk);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
-      if (matchesShortcut(event, shortcut)) {
-        event.preventDefault();
-        toggleQuickAsk();
-        return;
-      }
       if (event.key === "Escape" && quickAiPaneId) {
         setQuickAiPaneId(undefined);
         window.dispatchEvent(new Event("stackbridge:terminal-focus"));
@@ -525,7 +222,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [aiOpen, quickAiPaneId, shortcut, splitMenu, toggleQuickAsk]);
+  }, [aiOpen, quickAiPaneId, splitMenu]);
 
   useEffect(() => {
     if (!splitMenu) return;
@@ -749,6 +446,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
         key={pane.id}
         ref={(element) => handlePaneElement(pane.id, element)}
         className={`terminal-pane-shell ${isActive ? "active" : ""}`}
+        data-terminal-session-id={pane.id}
         role="group"
         aria-label={t("终端窗格")}
         onPointerDownCapture={() => activatePane(tab.id, pane.id)}
@@ -795,6 +493,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
           onState={handleTerminalState}
           onCursorAnchor={handleCursorAnchor}
           onUnavailable={() => void closePane(tab.id, pane.id)}
+          quickAskShortcut={shortcut}
         />
         {quickAiPaneId === pane.id ? (
           <InlineAssistant
@@ -1188,707 +887,6 @@ function AppIcon({ name }: { name: "terminal" | "connection" | "spark" | "settin
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" /><path d="M19 13.5v-3l-2-.7-.8-1.8.9-2-2.1-2.1-2 .9-1.8-.8-.7-2h-3l-.7 2-1.8.8-2-.9L.9 6l.9 2L1 9.8l-2 .7v3l2 .7.8 1.8-.9 2L3 20.1l2-.9 1.8.8.7 2h3l.7-2 1.8-.8 2 .9 2.1-2.1-.9-2 .8-1.8 2-.7Z" transform="translate(2) scale(.83)" /></svg>;
 }
 
-function createXtermCursorAnchor(host: HTMLElement): TerminalCursorAnchor {
-  return {
-    getCursorRect() {
-      return host.querySelector<HTMLElement>(".xterm-cursor")?.getBoundingClientRect();
-    },
-    observe(listener) {
-      const screen = host.querySelector<HTMLElement>(".xterm-screen");
-      if (!screen) return () => {};
-      const observer = new MutationObserver(listener);
-      observer.observe(screen, {
-        attributes: true,
-        attributeFilter: ["class", "style"],
-        childList: true,
-        subtree: true,
-      });
-      return () => observer.disconnect();
-    },
-  };
-}
-
-function TerminalPane({
-  sessionId,
-  active,
-  onContext,
-  onState,
-  onCursorAnchor,
-  onUnavailable,
-}: {
-  sessionId: string;
-  active: boolean;
-  onContext(sessionId: string, context: TerminalContext): void;
-  onState(sessionId: string, state: ConnectionState, writable: boolean, detail: string): void;
-  onCursorAnchor(sessionId: string, anchor: TerminalCursorAnchor | undefined): void;
-  onUnavailable(): void;
-}) {
-  const { t } = useLanguage();
-  const hostRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<Terminal | undefined>(undefined);
-  const activeRef = useRef(active);
-  const onContextRef = useRef(onContext);
-  const onStateRef = useRef(onState);
-  const onCursorAnchorRef = useRef(onCursorAnchor);
-  const onUnavailableRef = useRef(onUnavailable);
-  const tRef = useRef(t);
-
-  useEffect(() => {
-    onContextRef.current = onContext;
-    onStateRef.current = onState;
-    onCursorAnchorRef.current = onCursorAnchor;
-    onUnavailableRef.current = onUnavailable;
-    tRef.current = t;
-  }, [onContext, onCursorAnchor, onState, onUnavailable, t]);
-
-  useEffect(() => {
-    activeRef.current = active;
-    if (active) terminalRef.current?.focus();
-  }, [active]);
-
-  useEffect(() => {
-    const host = hostRef.current;
-    if (host === null) return;
-    const terminal = new Terminal({
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily: '"Cascadia Mono", "SFMono-Regular", Consolas, monospace',
-      fontSize: 14,
-      lineHeight: 1.2,
-      scrollback: 20_000,
-      allowProposedApi: false,
-      theme: {
-        background: "#0a0a0d",
-        foreground: "#d9d9e0",
-        cursor: "#aeb8ff",
-        cursorAccent: "#0a0a0d",
-        selectionBackground: "#59639a66",
-        black: "#16161b",
-        red: "#ff7d90",
-        green: "#5de4c7",
-        yellow: "#efc56d",
-        blue: "#91a1ff",
-        magenta: "#c6a0f6",
-        cyan: "#7ad7e5",
-        white: "#d9d9e0",
-        brightBlack: "#686875",
-        brightRed: "#ff9aac",
-        brightGreen: "#82ead4",
-        brightYellow: "#f4d48f",
-        brightBlue: "#b3bdff",
-        brightMagenta: "#d7b9ff",
-        brightCyan: "#a4e7ef",
-        brightWhite: "#f2f2f5",
-      },
-    });
-    const fit = new FitAddon();
-    terminal.loadAddon(fit);
-    terminal.open(host);
-    terminalRef.current = terminal;
-    onCursorAnchorRef.current(sessionId, createXtermCursorAnchor(host));
-    fit.fit();
-    if (activeRef.current) terminal.focus();
-    let disposed = false;
-    let socket: WebSocket | undefined;
-    let canWrite = false;
-    let replaying = false;
-    let unavailableReported = false;
-    let poll: number | undefined;
-    const dataSubscription = terminal.onData((data) => {
-      if (canWrite && !replaying && socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "input", data }));
-      }
-    });
-    const resizeObserver = new ResizeObserver(() => {
-      fit.fit();
-      if (canWrite && socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
-      }
-    });
-    resizeObserver.observe(host);
-    const focus = () => {
-      if (activeRef.current) terminal.focus();
-    };
-    window.addEventListener("stackbridge:terminal-focus", focus);
-
-    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    socket = new WebSocket(`${protocol}//${location.host}/v1/terminal-sessions/${sessionId}/stream`);
-    socket.addEventListener("message", (event) => {
-      const decoded = decodeServerMessage(event.data);
-      if (decoded === undefined) return;
-      if (decoded.type === "ready") {
-        const finishReplay = () => {
-          replaying = false;
-          canWrite = decoded.writable;
-          onStateRef.current(sessionId, decoded.state, decoded.writable, decoded.state === "running" ? tRef.current("已连接真实 PTY") : tRef.current("Shell 已退出"));
-          if (decoded.writable) {
-            socket?.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
-            if (activeRef.current) terminal.focus();
-          }
-        };
-        if (decoded.replay) {
-          replaying = true;
-          canWrite = false;
-          terminal.write(decoded.replay, finishReplay);
-        } else finishReplay();
-      } else if (decoded.type === "output") terminal.write(decoded.data);
-      else if (decoded.type === "writable") {
-        canWrite = decoded.writable;
-        onStateRef.current(sessionId, "running", canWrite, canWrite ? tRef.current("当前页面持有写入租约") : tRef.current("另一页面持有写入租约"));
-      } else if (decoded.type === "exit") {
-        canWrite = false;
-        onStateRef.current(sessionId, "exited", false, `${tRef.current("Shell 已退出")} (${decoded.exitCode})`);
-      } else terminal.writeln(`\r\n[StackBridge] ${decoded.message}`);
-    });
-    socket.addEventListener("close", (event) => {
-      if (disposed) return;
-      canWrite = false;
-      if (event.code === 1006) onStateRef.current(sessionId, "unavailable", false, tRef.current("与 Core 的连接中断"));
-    });
-    socket.addEventListener("error", () => onStateRef.current(sessionId, "unavailable", false, tRef.current("终端连接失败")));
-
-    const updateContext = async () => {
-      try {
-        const response = await fetch(`/v1/terminal-sessions/${sessionId}/context`, { cache: "no-store" });
-        if (response.status === 404) {
-          if (!unavailableReported) {
-            unavailableReported = true;
-            onUnavailableRef.current();
-          }
-          return;
-        }
-        if (response.ok) onContextRef.current(sessionId, await response.json() as TerminalContext);
-      } catch {}
-    };
-    void updateContext();
-    poll = window.setInterval(() => void updateContext(), 700);
-
-    return () => {
-      disposed = true;
-      if (poll !== undefined) clearInterval(poll);
-      window.removeEventListener("stackbridge:terminal-focus", focus);
-      resizeObserver.disconnect();
-      dataSubscription.dispose();
-      socket?.close();
-      terminal.dispose();
-      terminalRef.current = undefined;
-      onCursorAnchorRef.current(sessionId, undefined);
-    };
-  }, [sessionId]);
-  return <div className="terminal-host" ref={hostRef} />;
-}
-
-function AssistantPanel({
-  assistant,
-  context,
-  shortcut,
-  onClose,
-}: {
-  assistant: AssistantController;
-  context: TerminalContext | undefined;
-  shortcut: string;
-  onClose(): void;
-}) {
-  const { locale, t } = useLanguage();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const {
-    account,
-    models,
-    model,
-    conversation,
-    conversations,
-    message,
-    pendingMessage,
-    sending,
-    error,
-    loginId,
-  } = assistant;
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [conversation, pendingMessage]);
-
-  if (!account) return <aside className="assistant-panel loading-panel"><PanelHeader title={t("AI 助手")} subtitle={shortcut} onClose={onClose} /><CenteredStatus message={t("正在连接 Codex…")} /></aside>;
-  if (!account.authenticated) {
-    return (
-      <aside className="assistant-panel">
-        <PanelHeader title="Terminal AI" subtitle={shortcut} onClose={onClose} />
-        <div className="account-empty">
-          <div className="ai-hero">
-            <div className="ai-orb"><AppIcon name="spark" /></div>
-            <span className="ai-kicker">CODEX · CONTEXT AWARE</span>
-            <h2>{t("让终端自己解释终端")}</h2>
-            <p>{t("直接询问刚才的命令和输出。StackBridge 会自动带上当前主机、容器、目录和 Shell。")}</p>
-          </div>
-          <div className="ai-capabilities">
-            <div><span>01</span><p><strong>{t("理解现场")}</strong><small>{t("自动关联最近命令与输出")}</small></p></div>
-            <div><span>02</span><p><strong>{t("给出命令")}</strong><small>{t("建议始终固定到当前环境")}</small></p></div>
-            <div><span>03</span><p><strong>{t("确认再执行")}</strong><small>{t("每条命令都由你最终决定")}</small></p></div>
-          </div>
-          {loginId ? <>
-            <p className="form-note">{t("授权页面已打开。完成后回到这里检查状态；若网络或地区不可用，可以取消后重试。")}</p>
-            <button className="primary-button" onClick={() => void assistant.refreshAccount()}>{t("检查登录状态")}</button>
-            <button className="ghost-button" onClick={() => void assistant.cancelLogin()}>{t("取消本次登录")}</button>
-          </> : <button className="primary-button ai-login-button" onClick={() => void assistant.login()}>{t("使用 ChatGPT 登录")} <span>↗</span></button>}
-          <p className="privacy-note">{t("登录凭据保存在 StackBridge 独立 Codex 数据目录的认证文件中。")}</p>
-          {account.error ? <p className="form-error">{account.error}</p> : null}
-          {error ? <p className="form-error">{error}</p> : null}
-        </div>
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="assistant-panel">
-      <PanelHeader title={t("AI 助手")} subtitle={account.accountLabel ?? shortcut} onClose={onClose} />
-      <div className="assistant-tools">
-        <select value={model} onChange={(event) => assistant.setModel(event.target.value)} disabled={!!conversation}>
-          {(models.length ? models : [{ model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" } as CodexModel]).map((item) => (
-            <option key={item.model} value={item.model}>{item.displayName}</option>
-          ))}
-        </select>
-        <button className="ghost-button compact" onClick={assistant.newConversation}>＋ {t("新对话")}</button>
-        {conversations.length ? (
-          <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)}>
-            <option value="">{t("历史对话")}</option>
-            {conversations.map((item) => <option key={item.id} value={item.id}>{localizedConversationTitle(item.title, locale)}</option>)}
-          </select>
-        ) : null}
-      </div>
-      <div className="context-chip-row">
-        <span className={`context-chip ${context?.environment.verified === false ? "warning" : ""}`}>{context ? localizedEnvironmentLabel(context.environment.label, context.environment.kind, locale) : t("识别环境中")}</span>
-        <span className="context-chip">{locale === "zh-CN" ? `附带最近 ${Math.min(3, context?.recentCommandIds.length ?? 0)} 条输出` : `Includes ${Math.min(3, context?.recentCommandIds.length ?? 0)} recent outputs`}</span>
-        <details className="context-preview"><summary>{t("检查上下文")}</summary><pre>{JSON.stringify({
-          environment: context?.environment,
-          cwd: context?.cwd,
-          shell: context?.shell,
-          commandIds: context?.recentCommandIds.slice(-3),
-        }, null, 2)}</pre></details>
-      </div>
-      <div className="message-list" ref={scrollRef}>
-        {!conversation?.messages.length ? (
-          <div className="conversation-empty">
-            <div className="ai-orb small">✦</div>
-            <h3>{t("不用复制终端输出")}</h3>
-            <p>{t("直接问“刚才的错误是什么意思？”或“这个命令怎么写？”。")}</p>
-            <div className="prompt-suggestions">
-              {(["解释刚才的输出", "给我一个安全的排查命令", "当前在哪个环境？"] as const).map((item) => (
-                <button key={item} onClick={() => void assistant.send(t(item))}>{t(item)}</button>
-              ))}
-            </div>
-          </div>
-        ) : conversation.messages.map((item) => (
-          <div key={item.id} className={`message ${item.role}`}>
-            <div className="message-role">{item.role === "user" ? t("你") : item.role === "assistant" ? "AI" : t("环境")}</div>
-            <div className="message-body">{item.role === "timeline" ? localizedSystemMessage(item.content, locale) : item.content}</div>
-            {item.proposalIds?.map((id) => {
-              const proposal = conversation.proposals.find((candidate) => candidate.id === id);
-              return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={(item, decision) => void assistant.decide(item, decision)} onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
-            })}
-          </div>
-        ))}
-        {pendingMessage ? <div className="message user pending"><div className="message-role">{t("你")}</div><div className="message-body">{pendingMessage}</div></div> : null}
-        {sending ? <div className="thinking"><span /><span /><span /> {t("Codex 正在分析当前终端…")}</div> : null}
-      </div>
-      {error ? <div className="panel-error">{error}</div> : null}
-      <form className="composer" onSubmit={(event) => { event.preventDefault(); void assistant.send(); }}>
-        <textarea
-          value={message}
-          onChange={(event) => assistant.setMessage(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault();
-              void assistant.send();
-            }
-          }}
-          placeholder={t("问当前命令、输出或下一步…")}
-          disabled={sending}
-          rows={3}
-        />
-        <div className="composer-footer">
-          <span>{t("Enter 发送 · Shift+Enter 换行")}</span>
-          {sending ? (
-            <button type="button" className="danger-button" onClick={assistant.stop}>{t("停止")}</button>
-          ) : <button className="send-button" disabled={!message.trim()}>{t("发送 ↑")}</button>}
-        </div>
-      </form>
-    </aside>
-  );
-}
-
-function ProposalCard({ proposal, onDecision, onExplain }: {
-  proposal: CommandProposal;
-  onDecision(proposal: CommandProposal, decision: ApprovalDecision): void;
-  onExplain(commandBlockId: string): void;
-}) {
-  const { locale, t } = useLanguage();
-  return (
-    <section className="proposal-card">
-      <div className="proposal-heading"><span>{t("命令建议")}</span><StatusBadge status={proposal.status} /></div>
-      <p>{proposal.purpose}</p>
-      <pre><code>{proposal.command}</code></pre>
-      <div className="proposal-target">
-        <span>{localizedEnvironmentLabel(proposal.environmentLabel, proposal.environmentKind, locale)}</span>
-        <span>{proposal.host ?? (proposal.environmentKind === "local" ? t("本机") : proposal.environmentKind)}</span>
-        {proposal.containerId ? <span title={proposal.containerId}>{t("容器")} {proposal.containerId.slice(0, 12)}</span> : null}
-        <span>{proposal.user || t("当前用户")}</span><span>{proposal.cwd || t("当前目录")}</span><span>{proposal.shell}</span>
-      </div>
-      {proposal.status === "pending" ? (
-        <div className="proposal-actions">
-          <button className="primary-button compact" onClick={() => onDecision(proposal, "execute")}>{t("在此终端执行")}</button>
-          <button className="ghost-button compact" onClick={() => onDecision(proposal, "insert")}>{t("放入输入行")}</button>
-          <button className="text-button" onClick={() => onDecision(proposal, "reject")}>{t("暂不执行")}</button>
-        </div>
-      ) : proposal.operationId ? <OperationTracker id={proposal.operationId} onExplain={onExplain} /> : null}
-    </section>
-  );
-}
-
-function OperationTracker({ id, onExplain }: { id: string; onExplain(commandBlockId: string): void }) {
-  const { t } = useLanguage();
-  const [operation, setOperation] = useState<OperationSnapshot>();
-  useEffect(() => {
-    let stopped = false;
-    const update = async () => {
-      const response = await fetch(`/v1/operations/${id}`, { cache: "no-store" });
-      if (response.ok && !stopped) setOperation(await response.json() as OperationSnapshot);
-    };
-    void update();
-    const timer = window.setInterval(() => void update(), 800);
-    return () => { stopped = true; clearInterval(timer); };
-  }, [id]);
-  if (!operation) return <div className="operation-row">{t("正在提交…")}</div>;
-  return (
-    <div className="operation-row">
-      <StatusBadge status={operation.status} />
-      {operation.exitCode !== undefined ? <span>{t("退出码")} {operation.exitCode}</span> : null}
-      {operation.commandBlockId ? <button className="text-button" onClick={() => onExplain(operation.commandBlockId!)}>{t("解释结果")}</button> : null}
-    </div>
-  );
-}
-
-function ConnectionDialog({ onClose, onCreate }: {
-  onClose(): void;
-  onCreate(request: Record<string, unknown>, title: string, kind: "ssh" | "docker"): Promise<void>;
-}) {
-  const { t } = useLanguage();
-  const [kind, setKind] = useState<"ssh" | "docker">("ssh");
-  const [host, setHost] = useState("friden-dev-cube");
-  const [port, setPort] = useState("22");
-  const [user, setUser] = useState("friden");
-  const [container, setContainer] = useState("stackbridge-m0b1-ubuntu22");
-  const [containerUser, setContainerUser] = useState("root");
-  const [cwd, setCwd] = useState("/workspace");
-  const [contextName, setContextName] = useState("default");
-  const [approval, setApproval] = useState<{ id: string; proposal: Record<string, unknown> }>();
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-
-  const request = useMemo(() => kind === "ssh" ? {
-    kind, cols: 120, rows: 32, host, port: Number(port), user,
-  } : {
-    kind, cols: 120, rows: 32, host, port: Number(port), user,
-    contextName, container, containerUser, cwd,
-  }, [container, containerUser, contextName, cwd, host, kind, port, user]);
-
-  async function submit(event?: FormEvent, deploymentApprovalId?: string) {
-    event?.preventDefault();
-    setBusy(true);
-    setError(undefined);
-    try {
-      await onCreate(
-        { ...request, ...(deploymentApprovalId ? { deploymentApprovalId } : {}) },
-        kind === "ssh" ? `${user}@${host}` : `Docker · ${container}`,
-        kind,
-      );
-    } catch (reason) {
-      if (reason instanceof DeploymentRequired) {
-        setApproval({ id: String(reason.payload.approvalId), proposal: reason.payload.proposal as Record<string, unknown> });
-      } else setError(errorMessage(reason, t));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal title={t("新建连接")} onClose={onClose}>
-      <div className="segmented">
-        <button className={kind === "ssh" ? "active" : ""} onClick={() => setKind("ssh")}>{t("SSH 宿主")}</button>
-        <button className={kind === "docker" ? "active" : ""} onClick={() => setKind("docker")}>{t("远端 Docker")}</button>
-      </div>
-      <form className="connection-form" onSubmit={(event) => void submit(event)}>
-        <div className="field-grid three">
-          <Field label={t("主机")}><input value={host} onChange={(event) => setHost(event.target.value)} required /></Field>
-          <Field label={t("端口")}><input value={port} onChange={(event) => setPort(event.target.value)} inputMode="numeric" required /></Field>
-          <Field label={t("用户")}><input value={user} onChange={(event) => setUser(event.target.value)} required /></Field>
-        </div>
-        {kind === "docker" ? <>
-          <Field label={t("容器名称或 ID")}><input value={container} onChange={(event) => setContainer(event.target.value)} required /></Field>
-          <div className="field-grid three">
-            <Field label="Docker Context"><input value={contextName} onChange={(event) => setContextName(event.target.value)} required /></Field>
-            <Field label={t("容器用户")}><input value={containerUser} onChange={(event) => setContainerUser(event.target.value)} required /></Field>
-            <Field label={t("工作目录")}><input value={cwd} onChange={(event) => setCwd(event.target.value)} required /></Field>
-          </div>
-        </> : null}
-        <p className="form-note">{t("使用系统 OpenSSH 配置和密钥。Core 会先核验主机与运行实例，再打开真实交互 PTY。")}</p>
-        {approval ? (
-          <div className="approval-box">
-            <strong>{t("需要部署远端 Runtime")}</strong>
-            <p>{t("将固定版本运行时安装到登录用户的 ~/.sbridge。不会修改系统目录或 Shell 配置。")}</p>
-            <dl>{Object.entries(approval.proposal).slice(0, 8).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl>
-            <button type="button" className="primary-button" disabled={busy} onClick={() => void submit(undefined, approval.id)}>{t("确认部署并连接")}</button>
-          </div>
-        ) : <button className="primary-button" disabled={busy}>{busy ? t("正在核验…") : t("连接")}</button>}
-        {error ? <p className="form-error">{error}</p> : null}
-      </form>
-    </Modal>
-  );
-}
-
-function SettingsDialog({ shortcut, locale, onLocaleChange, onSave, onClose }: {
-  shortcut: string;
-  locale: "en" | "zh-CN";
-  onLocaleChange(locale: "en" | "zh-CN"): Promise<void>;
-  onSave(value: string): void;
-  onClose(): void;
-}) {
-  const { t } = useLanguage();
-  const [value, setValue] = useState(shortcut);
-  const [savingLanguage, setSavingLanguage] = useState(false);
-  const [languageError, setLanguageError] = useState<string>();
-  return (
-    <Modal title={t("工作台设置")} onClose={onClose}>
-      <Field label={t("语言")}>
-        <select value={locale} disabled={savingLanguage} onChange={(event) => {
-          const next = event.target.value as "en" | "zh-CN";
-          setSavingLanguage(true);
-          setLanguageError(undefined);
-          void onLocaleChange(next)
-            .catch(() => setLanguageError(t("无法保存语言设置。")))
-            .finally(() => setSavingLanguage(false));
-        }}>
-          <option value="en">English</option>
-          <option value="zh-CN">简体中文</option>
-        </select>
-      </Field>
-      {languageError ? <p className="form-error">{languageError}</p> : null}
-      <Field label={t("快速询问快捷键")}><input value={value} onChange={(event) => setValue(event.target.value)} /></Field>
-      <p className="form-note">{t("默认按 F8，也可以在设置中修改。中文输入法组合期间不会拦截快捷键。")}</p>
-      <button className="primary-button" onClick={() => onSave(value)}>{t("保存")}</button>
-    </Modal>
-  );
-}
-
-function Modal({ title, onClose, children }: { title: string; onClose(): void; children: ReactNode }) {
-  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal-card"><header><h2>{title}</h2><button className="icon-button" onClick={onClose}>×</button></header>{children}</section></div>;
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="field"><span>{label}</span>{children}</label>;
-}
-
-function PanelHeader({ title, subtitle, onClose }: { title: string; subtitle: string; onClose(): void }) {
-  return <header className="panel-header"><div><h2>{title}</h2><span>{subtitle}</span></div><button className="icon-button" onClick={onClose}>×</button></header>;
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const { t } = useLanguage();
-  const labels: Record<string, MessageKey> = {
-    pending: "等待确认", accepted: "已提交", running: "执行中", completed: "完成",
-    failed: "失败", interrupted: "已中断", unknown: "状态未知", inserted: "已放入输入行",
-    rejected: "未执行", expired: "已过期", stale: "需要重新确认",
-  };
-  return <span className={`status-badge ${status}`}>{labels[status] ? t(labels[status]) : status}</span>;
-}
-
 function CenteredStatus({ message }: { message: string }) {
   return <div className="centered-status"><span className="spinner" /><p>{message}</p></div>;
-}
-
-class DeploymentRequired extends Error {
-  constructor(readonly payload: Record<string, unknown>) {
-    super("Remote runtime deployment requires approval");
-  }
-}
-
-type Translate = (source: MessageKey) => string;
-
-async function api<T>(url: string, init: RequestInit | undefined, t: Translate): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) {
-    const fallback = t("请求失败");
-    throw new Error(apiError(payload, `${fallback} (${response.status})`, t));
-  }
-  return payload as T;
-}
-
-function apiError(payload: Record<string, unknown>, fallback: string, t: Translate): string {
-  if (typeof payload.message === "string") return payload.message;
-  if (typeof payload.error !== "string") return fallback;
-  const messages: Record<string, MessageKey> = {
-    terminal_session_limit_reached: "终端数量已达上限，请先关闭不用的标签。",
-    remote_session_limit_reached: "远端连接数量已达上限，请先关闭不用的标签。",
-    remote_terminals_unavailable: "远端终端服务当前不可用。",
-    terminal_session_not_found: "这个终端已经关闭。",
-  };
-  const message = messages[payload.error];
-  return message === undefined ? payload.error : t(message);
-}
-
-function errorMessage(reason: unknown, t: Translate): string {
-  return reason instanceof Error ? reason.message : t("发生未知错误");
-}
-
-function paneLayout(pane: TerminalPaneItem): PaneLayout {
-  return { type: "pane", pane };
-}
-
-function reusableTerminalRequest(body: Record<string, unknown>): Record<string, unknown> {
-  const { deploymentApprovalId: _deploymentApprovalId, ...request } = body;
-  return request;
-}
-
-function flattenPanes(layout: PaneLayout): TerminalPaneItem[] {
-  return layout.type === "pane"
-    ? [layout.pane]
-    : [...flattenPanes(layout.first), ...flattenPanes(layout.second)];
-}
-
-function findPane(layout: PaneLayout, paneId: string): TerminalPaneItem | undefined {
-  if (layout.type === "pane") return layout.pane.id === paneId ? layout.pane : undefined;
-  return findPane(layout.first, paneId) ?? findPane(layout.second, paneId);
-}
-
-function splitPane(
-  layout: PaneLayout,
-  paneId: string,
-  pane: TerminalPaneItem,
-  direction: SplitDirection,
-): PaneLayout {
-  if (layout.type === "pane") {
-    return layout.pane.id === paneId
-      ? { type: "split", direction, first: layout, second: paneLayout(pane) }
-      : layout;
-  }
-  if (findPane(layout.first, paneId)) {
-    return { ...layout, first: splitPane(layout.first, paneId, pane, direction) };
-  }
-  return { ...layout, second: splitPane(layout.second, paneId, pane, direction) };
-}
-
-function removePane(layout: PaneLayout, paneId: string): PaneLayout | undefined {
-  if (layout.type === "pane") return layout.pane.id === paneId ? undefined : layout;
-  const first = removePane(layout.first, paneId);
-  const second = removePane(layout.second, paneId);
-  if (!first) return second;
-  if (!second) return first;
-  return { ...layout, first, second };
-}
-
-function connectingRuntime(detail = "Attaching terminal…"): PaneRuntimeState {
-  return { connectionState: "connecting", writable: false, detail };
-}
-
-function readStoredTabs(): TerminalTab[] {
-  try {
-    const stored = parseStoredTabs(sessionStorage.getItem(tabsStorageKey));
-    if (stored.length > 0) return stored;
-
-    const legacyValue = JSON.parse(sessionStorage.getItem(legacyTabsStorageKey) ?? "[]") as unknown;
-    if (!Array.isArray(legacyValue)) return [];
-    const migrated = legacyValue.flatMap((item): TerminalTab[] => {
-      if (!isRecord(item) || typeof item.id !== "string" || typeof item.title !== "string") return [];
-      if (!isTerminalKind(item.kind)) return [];
-      const pane: TerminalPaneItem = {
-        id: item.id,
-        title: item.title,
-        kind: item.kind,
-        createRequest: { kind: "local", cols: 120, rows: 32 },
-      };
-      return [{
-        id: item.id,
-        title: item.title,
-        kind: item.kind,
-        layout: paneLayout(pane),
-        activePaneId: pane.id,
-      }];
-    });
-    if (migrated.length > 0) {
-      sessionStorage.setItem(tabsStorageKey, JSON.stringify(migrated));
-      sessionStorage.removeItem(legacyTabsStorageKey);
-    }
-    return migrated;
-  } catch {
-    return [];
-  }
-}
-
-function parseStoredTabs(raw: string | null): TerminalTab[] {
-  if (raw === null) return [];
-  const value = JSON.parse(raw) as unknown;
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item): TerminalTab[] => {
-    if (!isRecord(item) || typeof item.id !== "string" || typeof item.title !== "string") return [];
-    if (!isTerminalKind(item.kind) || typeof item.activePaneId !== "string") return [];
-    const layout = parsePaneLayout(item.layout, 0);
-    if (!layout) return [];
-    const activePaneId = findPane(layout, item.activePaneId)?.id ?? flattenPanes(layout)[0]?.id;
-    if (!activePaneId) return [];
-    return [{
-      id: item.id,
-      title: item.title,
-      kind: item.kind,
-      layout,
-      activePaneId,
-    }];
-  });
-}
-
-function parsePaneLayout(value: unknown, depth: number): PaneLayout | undefined {
-  if (depth > 32 || !isRecord(value)) return undefined;
-  if (value.type === "pane" && isRecord(value.pane)) {
-    const pane = value.pane;
-    if (typeof pane.id !== "string" || typeof pane.title !== "string" || !isTerminalKind(pane.kind)) {
-      return undefined;
-    }
-    return paneLayout({
-      id: pane.id,
-      title: pane.title,
-      kind: pane.kind,
-      createRequest: isRecord(pane.createRequest)
-        ? reusableTerminalRequest(pane.createRequest)
-        : { kind: "local", cols: 120, rows: 32 },
-    });
-  }
-  if (value.type !== "split" || (value.direction !== "horizontal" && value.direction !== "vertical")) {
-    return undefined;
-  }
-  const first = parsePaneLayout(value.first, depth + 1);
-  const second = parsePaneLayout(value.second, depth + 1);
-  return first && second ? { type: "split", direction: value.direction, first, second } : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object";
-}
-
-function isTerminalKind(value: unknown): value is TerminalKind {
-  return value === "local" || value === "ssh" || value === "docker";
-}
-
-function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
-  const parts = shortcut.toLowerCase().split("+").map((item) => item.trim());
-  const key = parts.at(-1);
-  const eventKey = event.code === "Space" ? "space" : event.key.toLowerCase();
-  return eventKey === key && event.ctrlKey === parts.includes("ctrl") && event.shiftKey === parts.includes("shift") && event.altKey === parts.includes("alt");
-}
-
-function decodeServerMessage(raw: unknown) {
-  try {
-    const text = typeof raw === "string" ? raw : raw instanceof Blob ? undefined : String(raw);
-    return text === undefined ? undefined : serverTerminalMessageSchema.parse(JSON.parse(text));
-  } catch {
-    return undefined;
-  }
 }

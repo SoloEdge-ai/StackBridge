@@ -1,6 +1,6 @@
 # StackBridge terminal-native AI interaction
 
-Status: shortcut iteration implemented; managed `/ai` and removable context chips remain follow-up work
+Status: shortcut-only interaction implemented; terminal character triggers are intentionally excluded
 
 ## Outcome
 
@@ -14,7 +14,7 @@ External product evidence is recorded in [`../research/warp-ai-terminal-interact
 
 ### Primary entry: configurable shortcut
 
-Keep `Ctrl+Shift+Space` as the default. Pressing it:
+Use `F8` as the default. Pressing it:
 
 1. Opens a one-line Quick Ask popover beside the xterm cursor in the focused terminal pane without changing terminal dimensions.
 2. Focuses a one-to-three-line prompt editor without changing or clearing the shell's current input buffer.
@@ -23,18 +23,14 @@ Keep `Ctrl+Shift+Space` as the default. Pressing it:
 
 `Enter` sends, `Shift+Enter` inserts a newline, and `Esc` returns to the terminal. IME composition must never trigger a shortcut or submit.
 
-### Secondary entry: explicit `/ai` input
-
-Provide `/ai <question>` later for users who prefer an explicit input-line entry. This is a managed-input feature, not a real executable installed on the target: the session-only PowerShell/Bash/Zsh line-editor integration must recognize the complete line only when the user accepts it at a verified idle prompt, emit an authenticated event, preserve/clear the buffer deliberately, and open Quick Ask with the question. Unsupported shells should expose `sbridge ask <question>` as the non-magical fallback rather than intercept raw bytes.
-
-Do not reserve `#`, `?`, `!`, `/`, or `@` by default:
+There is no secondary terminal-character entry. Do not reserve `#`, `?`, `!`, `/`, or `@`:
 
 - each has existing meaning in at least one supported shell;
 - StackBridge does not own the shell's line editor;
 - intercepting raw xterm bytes is unsafe around paste, IME, SSH, full-screen programs, and custom key bindings;
 - Warp's historical `#` entry point is not a good reason to break normal comments in PowerShell/Bash/Zsh.
 
-An opt-in prefix may be explored only after the shell integrations can prove that the cursor is at an empty, idle prompt and can preserve the user's buffer exactly.
+This is a product boundary, not a follow-up item: terminal characters always go to the real shell.
 
 ### Answer and command placement
 
@@ -53,7 +49,7 @@ AI output must never imitate terminal output or become part of PTY replay. Termi
 
 ```text
 TERMINAL_FOCUSED
-    | Ctrl+Shift+Space
+    | F8
     v
 QUICK_ASK_DRAFT -- Esc --> TERMINAL_FOCUSED
     | Enter (freeze active pane context)
@@ -94,13 +90,12 @@ The side panel remains the inspectable detail and full-answer surface. Inline an
 
 The existing Core conversation and approval APIs are sufficient for the first iteration. Most work is Web-side:
 
-1. Extract conversation state and `send`/`decide` operations from `AssistantPanel` into a workspace-level controller.
-2. Add one Quick Ask presentation per terminal pane, rendered as a DOM sibling over xterm rather than inside the PTY stream.
+1. Keep conversation state and `send`/`decide` operations in the dedicated assistant controller.
+2. Keep one Quick Ask presentation per terminal pane, rendered as a DOM sibling over xterm rather than inside the PTY stream.
    Its anchor observes xterm screen mutations as well as pane resizing, so background output and cursor movement reposition the popover without requiring another shortcut press.
-3. Change the existing shortcut from merely toggling the side panel to toggling and focusing Quick Ask for the active pane.
+3. Route the configurable shortcut through Electron's focused-window input handler and a sandboxed preload bridge, with a browser keydown fallback for web development.
 4. Reuse `ProposalCard` in the inline result and the side-panel history view.
-5. Default the side panel to closed; expose `Open history` from Quick Ask and keep a separate configurable history shortcut.
-6. Add the session-only `/ai` accept-line integration, with `sbridge ask` fallback, only after the shortcut flow is stable.
+5. Default the side panel to closed and expose `Open history` from Quick Ask.
 
 No custom terminal input editor or natural-language classifier is required for this iteration.
 
