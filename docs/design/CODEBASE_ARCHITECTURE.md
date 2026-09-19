@@ -10,8 +10,9 @@ The product is organized around three stable boundaries. UI composition may chan
 
 ## Web workbench
 
-- `App.tsx` is the composition root and workspace coordinator.
+- `App.tsx` is the composition root and workspace coordinator; terminal rendering and menu details stay outside it.
 - `workspace/terminal-layout.ts` owns immutable split-tree operations; `terminal-tabs-store.ts` owns persistence and legacy migration.
+- `workspace/TerminalLayoutView.tsx` recursively renders split panes; `TerminalContextMenu.tsx` owns pane-local AI and split actions.
 - `terminal/TerminalPane.tsx` owns one xterm/WebSocket attachment. It validates terminal context with the shared protocol schema and blocks the configured Quick Ask shortcut from entering the PTY byte stream.
 - `desktop/quick-ask-shortcut.ts` owns desktop bridge registration, browser fallback, and IME coordination.
 - `assistant/use-assistant-controller.ts` owns conversations, drafts, turns, approvals, and cancellation. Full history lives in `assistant/AssistantPanel.tsx`; cursor-anchored interaction lives in `assistant/InlineAssistant.tsx`.
@@ -29,5 +30,6 @@ The product is organized around three stable boundaries. UI composition may chan
 - Terminal bytes and AI UI are separate data paths.
 - `F8` is the default AI shortcut; configured shortcut events must never reach xterm or the Shell.
 - No terminal character sequence is reserved as an AI trigger.
+- A migrated remote tab may reattach by session id without reusable connection parameters; it cannot be cloned until the user creates a new managed connection.
 - Conversation history may span environments, while every proposal and execution remains frozen to one verified terminal context.
 - Every execution requires explicit approval and remains idempotent.
