@@ -1,3 +1,5 @@
+import { reusableTerminalSessionRequestSchema } from "@stackbridge/protocol";
+
 import {
   findPane,
   flattenPanes,
@@ -30,6 +32,7 @@ export function readTerminalTabs(storage: TerminalTabsStorage): TerminalTab[] {
         return [];
       }
       if (!isTerminalKind(item.kind)) return [];
+      if (item.kind !== "local") return [];
       const pane: TerminalPaneItem = {
         id: item.id,
         title: item.title,
@@ -46,8 +49,8 @@ export function readTerminalTabs(storage: TerminalTabsStorage): TerminalTab[] {
     });
     if (migrated.length > 0) {
       writeTerminalTabs(storage, migrated);
-      storage.removeItem(legacyTabsStorageKey);
     }
+    storage.removeItem(legacyTabsStorageKey);
     return migrated;
   } catch {
     return [];
@@ -114,4 +117,3 @@ function parsePaneLayout(value: unknown, depth: number): PaneLayout | undefined 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object";
 }
-import { reusableTerminalSessionRequestSchema } from "@stackbridge/protocol";

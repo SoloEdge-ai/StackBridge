@@ -46,6 +46,10 @@ export interface AssistantController {
   stop(): void;
 }
 
+export function canChangeConversation(sending: boolean): boolean {
+  return !sending;
+}
+
 export function useAssistantController(terminalId: string): AssistantController {
   const { t } = useLanguage();
   const [account, setAccount] = useState<AiAccountStatus>();
@@ -222,12 +226,12 @@ export function useAssistantController(terminalId: string): AssistantController 
       setDrafts((current) => ({ ...current, [targetTerminalId]: value }));
     },
     selectConversation(id) {
-      if (sending) return;
+      if (!canChangeConversation(sending)) return;
       setConversation(conversations.find((item) => item.id === id));
       setInlineMessageIds({});
     },
     newConversation() {
-      if (sending) return;
+      if (!canChangeConversation(sending)) return;
       setConversation(undefined);
       setInlineMessageIds({});
     },

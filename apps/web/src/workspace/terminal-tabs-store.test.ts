@@ -92,4 +92,17 @@ describe("terminal tabs store", () => {
 
     expect(readTerminalTabs(storage)).toEqual([]);
   });
+
+  it("does not migrate remote legacy tabs without reconstructible connection details", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("stackbridge.terminalTabs.v2", JSON.stringify([{
+      id: "terminal-ssh",
+      title: "SSH",
+      kind: "ssh",
+    }]));
+
+    expect(readTerminalTabs(storage)).toEqual([]);
+    expect(readTerminalTabs(storage)).toEqual([]);
+    expect(storage.getItem("stackbridge.terminalTabs.v2")).toBeNull();
+  });
 });
