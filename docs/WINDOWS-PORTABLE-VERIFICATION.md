@@ -6,8 +6,8 @@
 
 - 文件：`release/StackBridge-Portable-x64.exe`
 - 架构：Windows x64
-- 大小：104,175,058 bytes（99.4 MiB）
-- SHA-256：`B68E040C8D11948005320C53D9D545F23DF526BC93A05B1A3CA60B9C4A11937E`
+- 大小：104,176,015 bytes（99.3 MiB）
+- SHA-256：`6F16CFC69DC6AD328D40F233640D0828375F146AAD706E4ECE702B302EDB7A28`
 - 签名状态：未签名
 
 `release/` 是本地构建输出并被 Git 忽略，不提交二进制。使用 `pnpm desktop:portable` 可从已锁定依赖重新生成。
@@ -33,6 +33,7 @@
 15. 手输 SSH 后进入 Bash/Zsh Docker 时，产物内包含命令作用域子标记、随机临时 rc 注入和完整链路回显；真实 Playwright 已验证内部命令归属及原始 `.bashrc`/`.zshrc` 哈希不变。
 16. 手输 `ssh L001` 时，打包后的 PTY 与远端 Shell 均使用 `TERM=xterm-256color`，并选择远端已有的 UTF-8 locale；真实 Playwright 确认 Oh My Zsh 提示符显示为 `➜`，不会再出现 `?➜`。
 17. 新 EXE 本体在随机回环端口启动后，Playwright 验证 StackBridge 窗口聚焦期间成功注册 `F8` 快捷键，并经受限 preload IPC 在真实 xterm 光标旁打开约 420×38px 的 Quick Ask，不改变终端尺寸；窗口失焦或输入法开始组合时注销，重新聚焦或组合结束后恢复，设置页修改快捷键后同步重新注册。终端键盘唤醒 AI 只使用快捷键，半角与全角问号均原样发送给 PowerShell。异步加载完登录状态后输入框可靠获得焦点。空闲时只显示可聚焦/点击的上下文状态点、输入框和发送键，回答预览限制为 520px 宽、150px 高。编辑器可增长至三行，后台输出会带动浮层跟随光标，底部空间不足时向上翻转。Esc 保留未提交输入，并通过系统 Codex App Server 收到一次真实模型回答。
+18. 大重构后的最终产物将终端分栏树、标签持久化、上下文菜单、单窗格渲染、AI 控制器与 Core 路由拆分为独立边界；类型检查、104 项单元测试和 9 项本地端到端用例通过。5 项依赖真实 Codex 登录或 SSH/Docker 测试变量的浏览器用例在最终本地回归中按条件跳过。
 
 ## 当前边界
 
