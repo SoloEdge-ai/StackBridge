@@ -12,5 +12,15 @@ export default defineConfig({
     video: "retain-on-failure",
     viewport: { width: 1_440, height: 900 },
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      testIgnore: /desktop-shell\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "desktop",
+      testMatch: /desktop-shell\.spec\.ts/,
+    },
+  ],
 });

@@ -81,7 +81,7 @@ async function startDesktop(): Promise<void> {
 
   const coreEntry = new URL("./core.js", import.meta.url).href;
   await import(coreEntry);
-  const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.js");
+  const preloadPath = join(dirname(fileURLToPath(import.meta.url)), "preload.cjs");
 
   mainWindow = new BrowserWindow({
     title: "StackBridge",
