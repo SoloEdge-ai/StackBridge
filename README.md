@@ -1,40 +1,120 @@
-# StackBridge（栈桥）
+# StackBridge
 
-StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
+**A local-first AI terminal workbench for Windows, SSH Linux hosts, and remote Docker containers.**
 
-> 当前状态：**可用的 AI 终端垂直链路与 Windows x64 便携版已实现**。桌面窗口或浏览器均可使用真实 PowerShell、SSH Linux 和远端 Docker PTY；临时 Shell 集成记录命令、目录、输出和环境；连续 Codex 对话自动附带有界上下文；AI 建议只有在用户逐条确认、目标仍匹配且页面持有写入租约时，才会在原 Shell 执行一次。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## Windows 便携版
+[![Windows portable](https://github.com/SoloEdge-ai/StackBridge/actions/workflows/windows-release.yml/badge.svg)](https://github.com/SoloEdge-ai/StackBridge/actions/workflows/windows-release.yml)
+[![Latest release](https://img.shields.io/github/v/release/SoloEdge-ai/StackBridge?display_name=tag&sort=semver)](https://github.com/SoloEdge-ai/StackBridge/releases/latest)
 
-每次合入 `main` 后，GitHub Actions 都会构建新的 Windows x64 便携版，创建递增版本标签和 [GitHub Release](https://github.com/SoloEdge-ai/StackBridge/releases)，并上传形如 `StackBridge-Portable-0.1.12-x64.exe` 的可执行文件与 `SHA256SUMS.txt`。Pull Request 也会运行同样的校验和打包，但只保留 30 天的 Actions Artifact，不会发布 Release。
+StackBridge brings local PowerShell, SSH sessions, and Docker shells into one terminal workspace. Its AI assistant receives bounded terminal context and can propose commands without silently taking control of the shell.
 
-便携版是免安装单文件，双击后自动解压到临时目录并启动同源 Core 与桌面窗口，不需要 Node.js、pnpm 或启动令牌。系统需要预先安装 Codex CLI 0.155.0 或更高版本，并确保新终端中 `codex --version` 可用；StackBridge 每次启动都会检查 PATH 中全部 `.exe` 及 npm `.cmd`/`.bat` 候选，把 npm shim 安全解析为其原生 Codex 可执行文件，按完整版本号选择最新兼容版本并核验 `app-server` 能力，再把同一绝对启动描述交给 Core。不存在、不可执行、超时、版本过旧或能力异常时显示原生错误并退出。便携包不再内置 Codex 二进制，仍使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
+Every proposal is tied to the terminal and verified environment that produced it. A command runs only after explicit approval and only if the original shell is still idle, unchanged, and owned by the approving browser session.
 
-重新构建：
+![StackBridge Quick Ask beside a live PowerShell prompt](docs/assets/stackbridge-quick-ask.png)
 
-```powershell
-pnpm install
-pnpm desktop:portable
+> **Project status:** usable preview. The Windows x64 portable application, real PTYs, remote runtime verification, continuous Codex conversations, and approval-gated command execution are implemented.
+
+## Highlights
+
+- **Real terminals:** local PowerShell through ConPTY, plus interactive SSH and remote Docker PTYs.
+- **Verified targets:** host keys, runtime identity, Docker daemon identity, full container identity, start time, UID, cwd, shell, and mounts are checked before privileged actions.
+- **Inline AI:** press `F8` to open Quick Ask beside the active xterm cursor without inserting AI trigger characters into the shell.
+- **Continuous conversations:** one Codex conversation can follow work across panes while each turn freezes its own execution scope.
+- **Approval-gated execution:** suggestions are immutable, expire after five minutes, and execute at most once in the original shell.
+- **Terminal workspace:** tabs, horizontal and vertical splits, output replay, refresh reattachment, and a single-writer lease.
+- **Local-first credentials:** Codex authentication and workspace data remain in the current Windows user profile.
+
+## Screenshots
+
+### Split terminals
+
+Each pane owns an independent PTY, context, draft, and write lease.
+
+![Two PowerShell panes in a horizontal split](docs/assets/stackbridge-terminal-split.png)
+
+### Verified remote environment
+
+The active environment chain remains visible from local Windows through SSH to the selected Docker container.
+
+![Verified Windows to SSH to Docker environment chain](docs/assets/stackbridge-verified-docker.png)
+
+## Download
+
+Download the newest Windows x64 portable executable from the [latest GitHub Release](https://github.com/SoloEdge-ai/StackBridge/releases/latest).
+
+Release assets use a versioned filename such as:
+
+```text
+StackBridge-Portable-0.1.2-x64.exe
 ```
 
-本地产物使用 `apps/desktop/package.json` 中的版本号，例如 `release/StackBridge-Portable-0.1.0-x64.exe`。
+Each release also includes `SHA256SUMS.txt`. The portable application is a single file and does not require Node.js or pnpm on the destination machine.
 
-当前产物未使用商业代码签名证书，因此首次启动可能出现 Windows SmartScreen 提示。详见 [Windows 便携版验证记录](docs/WINDOWS-PORTABLE-VERIFICATION.md)。
+### Requirements
 
-## 运行当前原型
+- Windows x64.
+- Codex CLI `0.155.0` or newer available through `PATH`.
+- A ChatGPT account for Codex sign-in.
 
-要求 Windows、Node.js 22.14+ 和 pnpm 10.33+。
+Verify Codex before launching StackBridge:
 
 ```powershell
-pnpm install
+codex --version
+```
+
+StackBridge validates every Codex candidate on `PATH`, resolves npm shims to their native executable, selects the newest compatible version, and checks `app-server` support before opening the workspace.
+
+> The current executable is not code-signed. Windows SmartScreen may display a warning on first launch.
+
+## Quick start from source
+
+Development requires Windows, Node.js 22.14 or newer, and pnpm 10.33 or newer.
+
+```powershell
+corepack enable
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。界面默认使用英文，可在 Settings → Language 即时切换为简体中文，选择会在刷新和下次启动后保留。Codex 模型目录直接来自系统 Codex CLI 启动的 App Server，当前包含 Astra、Sol、Terra、Luna 和 GPT-5.5，新对话默认选择 Luna。可以新建本地、SSH 或远端 Docker 终端；在任意终端窗格右键可直接“解释最近输出 / 修复最近命令”，也可选择横向（左右）或纵向（上下）分栏。每个分栏都是独立 PTY，AI 上下文跟随当前聚焦窗格。受管 SSH/Docker 分栏会复制同一连接配置并重新核验目标；手输连接无法安全复制运行态，因此新分栏从本地 PowerShell 开始。每个窗格内侧使用一条紧凑状态线持续显示环境链、cwd 和 Shell，受管 PowerShell/Bash/Zsh 还会在每次提示符前回显环境链。终端输入流不设置 AI 字符触发器；键盘唤醒只使用快捷键，默认按 `F8` 在当前 xterm 光标旁打开/收起约 38px 高的一行式 Quick Ask，也可在 Settings 中修改。终端中的所有字符都会原样交给 Shell。桌面版在 StackBridge 窗口聚焦期间注册快捷键，窗口失焦后立即注销。中文输入法开始组合文字时也会临时注销，组合结束后恢复。未发送时只显示环境核验状态点、输入框和发送键，悬停或点击状态点可检查完整环境上下文。浮层不改变终端高度，空间不足时自动翻到光标上方。`Esc` 返回终端且不会覆盖尚未提交的输入；收到回答后只展开有界预览，完整内容与历史放在侧栏。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。StackBridge 启动的 PTY 和远端 Shell 会在会话范围内声明 `xterm-256color`，并从远端已有 locale 中选择 UTF-8，避免 `TERM=dumb` 或 ASCII 登录环境破坏 Oh My Zsh 等提示符；这些设置只作用于当前会话，不修改服务器系统配置。在终端手输普通 `ssh host` 时，当前会话专用的 Bash/Zsh 集成会自动同步到远端用户私有的 `~/.sbridge/shell`；后续手输普通交互式 `docker exec -it ... bash/zsh` 时，StackBridge 会在容器内用 `mktemp` 创建仅当前用户可访问的随机临时目录，加载后立即删除，再正常读取原有 `.bashrc`/`.zshrc`。容器只拿到派生的命令作用域标记，可上报 prompt、命令、cwd 和退出码，但不能推送/弹出环境或改变 runtime binding；因此提示符持续显示完整链路、Agent 能关联容器命令输出，同时用户 Shell 配置不被改写。受管 Shell 在命令边界同步标准清屏序列，`clear`/`cls` 会同时清理当前视口并在刷新回放后保持一致。
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The browser establishes a loopback-only, Origin-checked session automatically.
 
-AI 使用独立的 StackBridge Codex 数据目录。点击“Sign in with ChatGPT / 使用 ChatGPT 登录”完成官方授权；StackBridge 不复制当前 Codex 应用的 token 文件。Codex 凭据固定写入 `%LOCALAPPDATA%\StackBridge\codex\auth.json`，避开 Windows Credential Manager 对长 OAuth token 的长度限制，并继承当前用户目录的文件访问控制。提问时默认发送当前环境、最近 20 条命令摘要和最近 3 条输出，总量最多 64 KiB。App Server 请求只使用当前稳定字段，避免未声明 experimental capability 时被拒绝；真实 ChatGPT 登录与真实 Luna 回答已在开发版和便携版通过。所有建议执行前都需要再次确认。
+Build the portable application locally:
 
-常用验证命令：
+```powershell
+pnpm desktop:portable
+```
+
+The output uses the version from `apps/desktop/package.json`, for example `release/StackBridge-Portable-0.1.0-x64.exe`.
+
+## How it works
+
+| Layer | Responsibility |
+|---|---|
+| `apps/desktop` | Electron window, Core lifecycle, desktop shortcut registration, and portable startup checks |
+| `apps/web` | React, xterm.js, tabs, split layouts, Quick Ask, conversations, and approval UI |
+| `apps/core` | HTTP/WebSocket boundary, PTYs, SSH/Docker sessions, Codex App Server, approvals, and persistence |
+| `packages/protocol` | Shared Zod schemas and TypeScript contracts |
+| `runtime` | Linux amd64/arm64 runtime for identity verification, structured execution, Docker inspection, installation, and rollback |
+
+The Electron renderer never launches shells directly. Core owns terminal processes, verified runtime bindings, proposal state, execution operations, and local persistence.
+
+SSH uses the system OpenSSH client and existing `known_hosts`. Docker access runs through the verified SSH host, so containers do not need an SSH daemon or a resident StackBridge process.
+
+## Safety model
+
+StackBridge is built around four execution invariants:
+
+1. A saved connection describes how to connect; it does not prove which runtime instance is currently connected.
+2. Every AI turn freezes its terminal, environment frame, runtime binding, cwd, shell, context version, and input version.
+3. Models and browser clients cannot select or override execution identity and approval authority.
+4. An approved command runs only in the original idle shell while the approving session owns its write lease and the input line is empty.
+
+Terminal output, prompts, OSC markers, container names, and UI focus are treated as context, not authorization evidence.
+
+## Development
+
+Run the main validation suite:
 
 ```powershell
 pnpm typecheck
@@ -42,58 +122,35 @@ pnpm test
 pnpm build
 ```
 
-当前工作区：
+Go 1.24 is required when changing the Linux runtime:
 
-- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell/SSH/Docker PTY、Shell 集成、Codex App Server、审批状态机和 SQLite/分块输出持久化。
-- `apps/web`：React/Vite+xterm.js 终端工作台、可关闭多标签、横向/纵向分栏、窗格内紧凑环境链、连续 AI 对话、上下文预览和命令建议卡。
-- `packages/protocol`：Web/Core 共用的运行时消息 schema。
-- `runtime`：Linux Go runtime，提供自安装/回滚、身份握手、结构化 argv 与经宿主核验的 Docker 执行；仓库内置 amd64/arm64 静态产物。
+```powershell
+cd runtime
+go test ./...
+```
 
-## 核心方向
+Pull requests to `main` build and retain a Windows artifact for 30 days. Every squash merge to `main` creates a version tag, a GitHub Release, the portable executable, and its SHA-256 checksum.
 
-- Windows 客户端优先，同时允许浏览器直接连接独立 Core。
-- React + TypeScript + Vite Web UI；Electron 只承担窗口、本地端口和生命周期职责。
-- 独立 Node.js Core 管理会话、策略、审批和持久化。
-- 本地 Windows 使用 ConPTY；远端 Linux 使用轻量 Go runtime。
-- SSH 复用系统 OpenSSH；Docker 通过宿主进入容器，不要求容器运行 sshd。
-- ChatGPT/Codex 与 API 模型采用不同适配路径，模型凭证默认留在本机。
-- 所有 AI 文件与执行工具都绑定经核验的 target/runtime binding，并通过统一 Tool Gateway。
+## Current limitations
 
-## 设计判断
+- Browser refresh can reattach to live terminals, but Core restart does not preserve local PowerShell processes or remote PTYs.
+- `tmux`, `screen`, elevated shells, password/MFA askpass, and unsupported shells fall back to reduced capabilities.
+- Hand-typed SSH and Docker transitions can be tracked, but unverified environments cannot receive approved automatic command submission.
+- Full-screen TUI, IME composition, sustained high-throughput workloads, and clean-Windows test matrices need broader validation.
+- File auto-editing, native command tools, plugins, subagents, and unattended agent loops are not included in the current release.
+- Windows packages are not yet code-signed and no standard installer or automatic updater is provided.
 
-规格的最大价值不在 UI 形态，而在三个安全与一致性不变量：逻辑目标和真实实例必须分离；Agent 会话必须冻结目标绑定；审批必须绑定完整动作与目标身份。它们应先于复杂界面、模型扩展和工作流实现。
+## Documentation
 
-项目的首要技术风险是 Windows PTY 生命周期、SSH/Docker 跨目标防串线、Codex App Server 的可控工具边界，以及跨 TS/Go 的协议兼容。建议用四个小型真实垂直切片验证这些风险，再进入完整产品开发。
+- [Product and engineering specification](docs/design/STACKBRIDGE_SPEC.md)
+- [Codebase architecture](docs/design/CODEBASE_ARCHITECTURE.md)
+- [Domain model and invariants](CONTEXT.md)
+- [Protocol](docs/PROTOCOL.md)
+- [Target identity protocol](docs/TARGET_PROTOCOL.md)
+- [AI terminal verification](docs/AI-TERMINAL-VERIFICATION.md)
+- [Windows portable verification](docs/WINDOWS-PORTABLE-VERIFICATION.md)
+- [Current implementation status](docs/STATUS.md)
 
-详见 [设计评估](docs/ANALYSIS.md)。
+## Repository policy
 
-## 文档
-
-- [产品与工程实施规格](docs/design/STACKBRIDGE_SPEC.md)
-- [原始开发 Agent 交接材料](docs/design/AGENT_HANDOFF.md)
-- [设计评估](docs/ANALYSIS.md)
-- [M0-A 协议](docs/PROTOCOL.md)
-- [M0-B0 目标身份协议](docs/TARGET_PROTOCOL.md)
-- [M0-B1 SSH/Docker 验证记录](docs/M0-B1-VERIFICATION.md)
-- [M0-B2 runtime 自动同步与 UI 验证记录](docs/M0-B2-VERIFICATION.md)
-- [AI 终端验证记录](docs/AI-TERMINAL-VERIFICATION.md)
-- [终端内联 AI 交互设计](docs/design/INLINE_AI_INTERACTION.md)
-- [Warp AI 终端交互调研](docs/research/warp-ai-terminal-interaction.md)
-- [连续对话与冻结执行作用域 ADR](docs/adr/0002-continuous-conversation-frozen-execution.md)
-- [领域词汇](CONTEXT.md)
-- [项目状态](docs/STATUS.md)
-- [后续交接](docs/HANDOFF.md)
-
-`docs/design/AGENT_HANDOFF.md` 是随设计包提供的参考材料，不代表其中的开发指令已在本仓库执行。
-
-文档职责：`STACKBRIDGE_SPEC.md` 是产品与架构基线；`ANALYSIS.md` 记录评估与待澄清项；`STATUS.md` 和 `HANDOFF.md` 只保存当前实施快照。调整需求或里程碑时先更新规格，再同步快照，避免多个路线版本并存。
-
-## 当前限制
-
-- 页面刷新可重新附着 Core 持有的本地/远端 PTY；Core 重启后会恢复对话和命令历史，但本地 PowerShell 进程不保证存活，远端 supervisor/短断线重附着仍待协议 3 实现。
-- 多页面可同时查看同一终端，但只有一个浏览器会话持有写入租约；确认执行也要求同一会话持有该租约。
-- 普通 PowerShell、Bash 和 Zsh 已支持；手输常见 `ssh host` 与远端 `docker exec -it` 可跟踪未核验环境。tmux/screen、提权 Shell、未适配 Shell、密码/MFA askpass、带远端命令的 SSH 和绕过临时包装器的连接只提供降级能力。
-- Shell 随机标记用于隔离普通输出，不等同于防御同 UID 恶意进程的受限 IPC 安全边界；runtime binding 始终由 Core 独立核验。
-- 用户侧真实 ChatGPT OAuth、独立 `CODEX_HOME/auth.json` 凭据持久化和真实模型回答已通过；建议卡仍始终要求逐条确认，未经确认不会执行。
-- 尚未完成全屏 TUI、中文输入法组合输入和持续高吞吐压力的完整验收；Windows 便携版已有生产同源静态服务和 Electron 外壳，但尚未做干净 Windows 矩阵及代码签名。
-- 首版不提供文件自动修改、原生命令工具、外部插件、子代理或无人值守循环。
+`main` is protected. Changes require a pull request, the `Build and verify` check, and a squash merge. Force pushes, branch deletion, merge commits, and rebase merges are disabled.
