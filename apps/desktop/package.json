@@ -60,7 +60,7 @@
       }
     ],
     "win": {
-      "artifactName": "StackBridge-Portable-${arch}.${ext}",
+      "artifactName": "StackBridge-Portable-${version}-${arch}.${ext}",
       "target": [
         {
           "target": "portable",
@@ -71,7 +71,6 @@
       ]
     },
     "portable": {
-      "artifactName": "StackBridge-Portable-${arch}.${ext}",
       "requestExecutionLevel": "user"
     }
   }

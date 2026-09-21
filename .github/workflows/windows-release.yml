@@ -1,0 +1,138 @@
+name: Windows portable
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-portable-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and verify
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      release_tag: ${{ steps.release_metadata.outputs.release_tag }}
+      release_file: ${{ steps.release_files.outputs.release_file }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Define release metadata
+        id: release_metadata
+        shell: pwsh
+        env:
+          RELEASE_VERSION: 0.1.${{ github.run_number }}
+        run: |
+          "release_version=$env:RELEASE_VERSION" >> $env:GITHUB_OUTPUT
+          "release_tag=v$env:RELEASE_VERSION" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - name: Enable pnpm through Corepack
+        shell: pwsh
+        run: corepack enable
+
+      - name: Install dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check
+        shell: pwsh
+        run: pnpm typecheck
+
+      - name: Run unit and integration tests
+        shell: pwsh
+        run: pnpm test
+
+      - name: Set build version
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.release_metadata.outputs.release_version }}
+        run: |
+          $packagePath = "apps/desktop/package.json"
+          $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
+          $package.version = $env:RELEASE_VERSION
+          $package | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $packagePath -Encoding utf8
+
+      - name: Build portable executable
+        shell: pwsh
+        run: pnpm desktop:portable
+
+      - name: Collect release files
+        id: release_files
+        shell: pwsh
+        run: |
+          $executables = @(Get-ChildItem -LiteralPath "release" -Filter "StackBridge-Portable-*-x64.exe" -File)
+          if ($executables.Count -ne 1) {
+            throw "Expected exactly one versioned portable executable, found $($executables.Count)"
+          }
+          $executable = $executables[0]
+          $hash = (Get-FileHash -LiteralPath $executable -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($executable.Name)" | Set-Content -LiteralPath "release/SHA256SUMS.txt" -Encoding ascii
+          "release_file=$($executable.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload Windows portable artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: stackbridge-windows-x64-${{ github.sha }}
+          path: |
+            release/${{ steps.release_files.outputs.release_file }}
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Windows portable artifact
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: stackbridge-windows-x64-${{ github.sha }}
+          path: release
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          RELEASE_FILE: ${{ needs.build.outputs.release_file }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "release/$RELEASE_FILE#StackBridge Portable for Windows x64" \
+              "release/SHA256SUMS.txt#SHA-256 checksums" \
+              --clobber
+          else
+            gh release create "$RELEASE_TAG" \
+              "release/$RELEASE_FILE#StackBridge Portable for Windows x64" \
+              "release/SHA256SUMS.txt#SHA-256 checksums" \
+              --target "$GITHUB_SHA" \
+              --title "StackBridge $RELEASE_TAG" \
+              --generate-notes \
+              --latest
+          fi
