@@ -4,13 +4,13 @@
 
 ## 产物
 
-- 文件：`release/StackBridge-Portable-x64.exe`
+- 当次验证文件（旧命名）：`release/StackBridge-Portable-x64.exe`
 - 架构：Windows x64
 - 大小：104,176,015 bytes（99.3 MiB）
 - SHA-256：`6F16CFC69DC6AD328D40F233640D0828375F146AAD706E4ECE702B302EDB7A28`
 - 签名状态：未签名
 
-`release/` 是本地构建输出并被 Git 忽略，不提交二进制。使用 `pnpm desktop:portable` 可从已锁定依赖重新生成。
+`release/` 是本地构建输出并被 Git 忽略，不提交二进制。使用 `pnpm desktop:portable` 可从已锁定依赖重新生成。当前命名规则为 `release/StackBridge-Portable-<version>-x64.exe`；上述哈希仍只对应 2026-09-19 的原验证产物。
 
 ## 验证结果
 

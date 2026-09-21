@@ -30,10 +30,10 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 
 ## 启动与验证
 
-直接使用本地便携产物：
+直接使用带版本号的本地便携产物：
 
 ```text
-release/StackBridge-Portable-x64.exe
+release/StackBridge-Portable-<version>-x64.exe
 ```
 
 重新生成产物：

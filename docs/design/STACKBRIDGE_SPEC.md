@@ -499,7 +499,7 @@ SQLite 实体：workspaces、connection_profiles、targets、runtime_bindings、
 
 凭证库仅保存 secret，数据库保存 credentialRef。备份默认不导出凭证，清楚区分“导出配置”和“导出密钥”。
 
-Windows 安装包包含可运行的 Core 环境与正确 ABI 的原生依赖；浏览器开发与桌面打包均须测试，不能只在开发机器 npm install 后通过。Electron 与独立 Node 的原生模块使用场景不同，不假定同一个 node-pty 编译产物通用。
+Windows 安装包包含可运行的 Core 环境与正确 ABI 的原生依赖；浏览器开发与桌面打包均须测试，不能只在开发机器 npm install 后通过。Electron 与独立 Node 的原生模块使用场景不同，不假定同一个 node-pty 编译产物通用。Windows x64 便携产物使用 `StackBridge-Portable-<version>-x64.exe` 命名，不提交到 Git；Pull Request 验证保留短期 Actions Artifact，每次合入 `main` 后自动创建版本 Tag 和 GitHub Release，并上传可执行文件及 SHA-256 校验和。
 
 更新前检测运行任务，支持延期更新、版本回退和数据库迁移备份。远端 runtime 支持多版本缓存、兼容协商、旧版本清理和离线部署。
 

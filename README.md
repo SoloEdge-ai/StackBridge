@@ -6,7 +6,9 @@ StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台�
 
 ## Windows 便携版
 
-本地构建产物为 `release/StackBridge-Portable-x64.exe`。它是免安装单文件，双击后自动解压到临时目录并启动同源 Core 与桌面窗口，不需要 Node.js、pnpm 或启动令牌。系统需要预先安装 Codex CLI 0.155.0 或更高版本，并确保新终端中 `codex --version` 可用；StackBridge 每次启动都会检查 PATH 中全部 `.exe` 及 npm `.cmd`/`.bat` 候选，把 npm shim 安全解析为其原生 Codex 可执行文件，按完整版本号选择最新兼容版本并核验 `app-server` 能力，再把同一绝对启动描述交给 Core。不存在、不可执行、超时、版本过旧或能力异常时显示原生错误并退出。便携包不再内置 Codex 二进制，仍使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
+每次合入 `main` 后，GitHub Actions 都会构建新的 Windows x64 便携版，创建递增版本标签和 [GitHub Release](https://github.com/SoloEdge-ai/StackBridge/releases)，并上传形如 `StackBridge-Portable-0.1.12-x64.exe` 的可执行文件与 `SHA256SUMS.txt`。Pull Request 也会运行同样的校验和打包，但只保留 30 天的 Actions Artifact，不会发布 Release。
+
+便携版是免安装单文件，双击后自动解压到临时目录并启动同源 Core 与桌面窗口，不需要 Node.js、pnpm 或启动令牌。系统需要预先安装 Codex CLI 0.155.0 或更高版本，并确保新终端中 `codex --version` 可用；StackBridge 每次启动都会检查 PATH 中全部 `.exe` 及 npm `.cmd`/`.bat` 候选，把 npm shim 安全解析为其原生 Codex 可执行文件，按完整版本号选择最新兼容版本并核验 `app-server` 能力，再把同一绝对启动描述交给 Core。不存在、不可执行、超时、版本过旧或能力异常时显示原生错误并退出。便携包不再内置 Codex 二进制，仍使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
 
 重新构建：
 
@@ -14,6 +16,8 @@ StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台�
 pnpm install
 pnpm desktop:portable
 ```
+
+本地产物使用 `apps/desktop/package.json` 中的版本号，例如 `release/StackBridge-Portable-0.1.0-x64.exe`。
 
 当前产物未使用商业代码签名证书，因此首次启动可能出现 Windows SmartScreen 提示。详见 [Windows 便携版验证记录](docs/WINDOWS-PORTABLE-VERIFICATION.md)。
 
