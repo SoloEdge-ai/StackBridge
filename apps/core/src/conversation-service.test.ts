@@ -71,7 +71,7 @@ describe("conversation and approval workflow", () => {
     });
 
     expect(assistant.lastTurn).toMatchObject({
-      threadId: "thread-1",
+      providerSessionId: "thread-1",
       message: "这个错误是什么意思？",
       context: {
         terminalSessionId: terminal.id,
@@ -351,7 +351,7 @@ class FakeAssistant implements TerminalAssistant {
   lastCreateModel: string | undefined;
   lastTurn: unknown;
 
-  async createThread(model: string): Promise<string> {
+  async startSession(model: string): Promise<string> {
     this.lastCreateModel = model;
     return "thread-1";
   }

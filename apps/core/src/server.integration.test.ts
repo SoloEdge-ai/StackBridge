@@ -542,7 +542,7 @@ async function listen(core: CoreServer): Promise<string> {
 }
 
 class HttpFakeAssistant implements TerminalAssistant {
-  async createThread(): Promise<string> {
+  async startSession(): Promise<string> {
     return "thread-http";
   }
 

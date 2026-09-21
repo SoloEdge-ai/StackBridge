@@ -8,6 +8,7 @@ function conversation(id: string): ConversationSnapshot {
     schemaVersion: 2,
     id,
     title: id,
+    providerId: "chatgpt",
     model: "gpt-5.6-luna",
     createdAt: "2026-09-19T00:00:00.000Z",
     updatedAt: "2026-09-19T00:00:00.000Z",

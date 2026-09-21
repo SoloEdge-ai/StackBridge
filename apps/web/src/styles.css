@@ -321,7 +321,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
   border: 1px solid #292930;
   border-radius: 12px;
@@ -332,10 +332,22 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .panel-header { height: 49px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px 0 15px; border-bottom: 1px solid #24242b; background: #16161b; }
 .panel-header h2 { margin: 0; color: #e7e7ed; font-size: 13px; letter-spacing: -.01em; }
 .panel-header span { color: #686875; font-size: 8px; }
+.provider-switcher { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 8px 11px; border-bottom: 1px solid #24242b; background: #101015; }
+.provider-switcher button { display: flex; align-items: center; justify-content: center; gap: 7px; height: 31px; color: #777783; border: 1px solid #292932; border-radius: 7px; background: #15151b; font-size: 10px; }
+.provider-switcher button.active { color: #e2e2e9; border-color: #4c5279; background: #25283d; }
+.provider-switcher button:disabled { cursor: default; opacity: .72; }
+.provider-switcher button span { width: 6px; height: 6px; border-radius: 50%; background: #5c5c66; }
+.provider-switcher button span.ready { background: #58d6b9; box-shadow: 0 0 7px #58d6b966; }
+.provider-switcher button span.offline { background: #df6d7f; }
+.provider-switcher small { grid-column: 1 / 3; color: #666672; text-align: center; font-size: 8px; }
 .assistant-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 10px 11px 5px; }
-.assistant-tools select, .field input, .field select, .composer textarea, .history-select { color: #dedee5; border: 1px solid #303039; border-radius: 8px; outline: none; background: #0d0d11; }
+.assistant-tools select, .assistant-tools input, .field input, .field select, .composer textarea, .history-select { color: #dedee5; border: 1px solid #303039; border-radius: 8px; outline: none; background: #0d0d11; }
 .assistant-tools select { min-width: 0; height: 32px; padding: 0 9px; font-size: 11px; }
 .assistant-tools .history-select { grid-column: 1 / 3; }
+.model-input { min-width: 0; position: relative; }
+.model-input span { position: absolute; left: 9px; top: 3px; color: #666672; font-size: 7px; }
+.model-input input { width: 100%; height: 32px; padding: 10px 9px 1px; font-size: 10px; }
+.provider-configure { grid-column: 1 / 3; justify-self: start; }
 .context-chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 6px 11px 10px; border-bottom: 1px solid #24242b; }
 .context-chip { padding: 4px 7px; color: #858591; border: 1px solid #2d2d35; border-radius: 999px; background: #18181e; font-size: 9px; }
 .context-chip.warning { color: var(--warning); border-color: #584a28; background: #221d12; }
@@ -377,7 +389,13 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .send-button { width: 34px; height: 29px; color: #111119; background: #aeb8ff; font-weight: 900; }
 .panel-error { margin: 0 11px 8px; padding: 8px 10px; color: #ffadb8; border: 1px solid #57303a; border-radius: 8px; background: #28171c; font-size: 10px; }
 
-.account-empty { grid-row: 2 / -1; min-height: 0; display: flex; flex-direction: column; align-items: stretch; padding: 22px 18px 16px; overflow-y: auto; }
+.account-empty { grid-row: 3 / -1; min-height: 0; display: flex; flex-direction: column; align-items: stretch; padding: 22px 18px 16px; overflow-y: auto; }
+.deepseek-setup { gap: 13px; }
+.compact-hero .ai-orb { margin-bottom: 14px; }
+.compact-hero h2 { font-size: 19px; }
+.provider-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.form-success { margin: 0; color: #68d9be; font-size: 11px; }
+.danger-text { color: #e67f90; }
 .ai-hero { display: grid; justify-items: start; }
 .ai-orb { width: 44px; height: 44px; display: grid; place-items: center; margin-bottom: 22px; border: 1px solid #555b8e; border-radius: 12px; color: #bec5ff; background: linear-gradient(145deg, #35395e, #1c1d2b); box-shadow: 0 10px 32px #697aff18; }
 .ai-orb svg { width: 22px; height: 22px; }

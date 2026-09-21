@@ -25,13 +25,17 @@ describe("WorkspaceStore", () => {
     const directory = temporaryDirectory();
     const first = new WorkspaceStore(directory);
     expect(first.loadLocale()).toBe("en");
+    expect(first.loadAiProviderId()).toBe("chatgpt");
     first.saveLocale("zh-CN");
+    first.saveAiProviderId("deepseek");
     first.close();
 
     const reopened = new WorkspaceStore(directory);
     expect(reopened.loadLocale()).toBe("zh-CN");
+    expect(reopened.loadAiProviderId()).toBe("deepseek");
     reopened.saveLocale("en");
     expect(reopened.loadLocale()).toBe("en");
+    expect(reopened.loadAiProviderId()).toBe("deepseek");
     reopened.close();
   });
 
@@ -54,6 +58,28 @@ describe("WorkspaceStore", () => {
     expect(reopened.loadProposals()).toEqual([{ proposal, scope }]);
     expect(reopened.loadOperations()).toEqual([operation]);
     expect(reopened.readCommand(command.id)).toEqual(command);
+    reopened.close();
+  });
+
+  it("migrates legacy Codex conversation snapshots to the ChatGPT provider", () => {
+    const directory = temporaryDirectory();
+    const current = sampleConversation();
+    const {
+      providerId: _providerId,
+      providerSessionId: legacyThreadId,
+      ...legacyFields
+    } = current;
+    const legacy = {
+      ...legacyFields,
+      codexThreadId: legacyThreadId,
+    } as unknown as ConversationSnapshot;
+
+    const first = new WorkspaceStore(directory);
+    first.saveConversation(legacy);
+    first.close();
+
+    const reopened = new WorkspaceStore(directory);
+    expect(reopened.loadConversations()).toEqual([current]);
     reopened.close();
   });
 
@@ -115,8 +141,9 @@ function sampleConversation(): ConversationSnapshot {
     schemaVersion: 2,
     id: proposal.conversationId,
     title: "测试会话",
+    providerId: "chatgpt",
     model: "gpt-5.6-sol",
-    codexThreadId: "thread-test",
+    providerSessionId: "thread-test",
     createdAt: "2026-09-18T00:00:00.000Z",
     updatedAt: "2026-09-18T00:00:01.000Z",
     messages: [{

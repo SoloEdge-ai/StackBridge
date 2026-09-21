@@ -227,6 +227,7 @@ export type RemoteExecutionResult = z.infer<typeof remoteExecutionResultSchema>;
 export const createConversationRequestSchema = z.object({
   schemaVersion: schemaVersion2,
   terminalSessionId: z.uuid(),
+  providerId: z.enum(["chatgpt", "deepseek"]).optional(),
   model: z.string().trim().min(1).max(128).optional(),
 }).strict();
 
@@ -262,6 +263,43 @@ export const aiAccountStatusSchema = z.object({
 }).strict();
 
 export type AiAccountStatus = z.infer<typeof aiAccountStatusSchema>;
+
+export const aiProviderIdSchema = z.enum(["chatgpt", "deepseek"]);
+export type AiProviderId = z.infer<typeof aiProviderIdSchema>;
+
+export const aiModelSchema = z.object({
+  id: z.string().min(1),
+  model: z.string().min(1),
+  displayName: z.string().min(1),
+  description: z.string(),
+  isDefault: z.boolean(),
+}).strict();
+export type AiModel = z.infer<typeof aiModelSchema>;
+
+export const aiProviderSummarySchema = z.object({
+  id: aiProviderIdSchema,
+  kind: aiProviderIdSchema,
+  label: z.string().min(1),
+  available: z.boolean(),
+  configured: z.boolean(),
+  authenticated: z.boolean(),
+  credentialPersistence: z.enum(["codex-managed", "system-encrypted", "session-only"]),
+  hasApiKey: z.boolean().optional(),
+  baseUrl: z.string().url().optional(),
+  model: z.string().min(1).optional(),
+  lastVerifiedAt: z.string().datetime({ offset: true }).optional(),
+  accountLabel: z.string().optional(),
+  error: z.string().optional(),
+}).strict();
+export type AiProviderSummary = z.infer<typeof aiProviderSummarySchema>;
+
+export const deepSeekProviderInputSchema = z.object({
+  schemaVersion: schemaVersion2,
+  baseUrl: z.string().trim().min(1).max(2_048),
+  model: z.string().trim().min(1).max(128),
+  apiKey: z.string().trim().min(1).max(4_096).optional(),
+}).strict();
+export type DeepSeekProviderInput = z.infer<typeof deepSeekProviderInputSchema>;
 
 export const commandProposalSchema = z.object({
   schemaVersion: schemaVersion2,
@@ -311,7 +349,9 @@ export const conversationSnapshotSchema = z.object({
   schemaVersion: schemaVersion2,
   id: z.uuid(),
   title: z.string(),
+  providerId: aiProviderIdSchema.default("chatgpt"),
   model: z.string(),
+  providerSessionId: z.string().optional(),
   codexThreadId: z.string().optional(),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),

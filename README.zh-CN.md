@@ -4,13 +4,13 @@
 
 StackBridge 是一个面向高频工程工作的本地优先 AI 终端工作台。它计划把本机 Windows、SSH Linux 主机和远端 Docker 容器放进同一套可核验的目标模型中，让终端、文件操作、AI 建议、审批和审计都明确绑定到真实执行环境。
 
-> 当前状态：**可用的 AI 终端垂直链路与 Windows x64 便携版已实现**。桌面窗口或浏览器均可使用真实 PowerShell、SSH Linux 和远端 Docker PTY；临时 Shell 集成记录命令、目录、输出和环境；连续 Codex 对话自动附带有界上下文；AI 建议只有在用户逐条确认、目标仍匹配且页面持有写入租约时，才会在原 Shell 执行一次。
+> 当前状态：**可用的 AI 终端垂直链路与 Windows x64 便携版已实现**。桌面窗口或浏览器均可使用真实 PowerShell、SSH Linux 和远端 Docker PTY；连续对话可选择通过 Codex 登录的 ChatGPT，或使用本机 API 配置的 DeepSeek；AI 建议只有在用户逐条确认、目标仍匹配且页面持有写入租约时，才会在原 Shell 执行一次。
 
 ## Windows 便携版
 
 每次合入 `main` 后，GitHub Actions 都会构建新的 Windows x64 便携版，创建递增版本标签和 [GitHub Release](https://github.com/SoloEdge-ai/StackBridge/releases)，并上传形如 `StackBridge-Portable-0.1.12-x64.exe` 的可执行文件与 `SHA256SUMS.txt`。Pull Request 也会运行同样的校验和打包，但只保留 30 天的 Actions Artifact，不会发布 Release。
 
-便携版是免安装单文件，双击后自动解压到临时目录并启动同源 Core 与桌面窗口，不需要 Node.js、pnpm 或启动令牌。系统需要预先安装 Codex CLI 0.155.0 或更高版本，并确保新终端中 `codex --version` 可用；StackBridge 每次启动都会检查 PATH 中全部 `.exe` 及 npm `.cmd`/`.bat` 候选，把 npm shim 安全解析为其原生 Codex 可执行文件，按完整版本号选择最新兼容版本并核验 `app-server` 能力，再把同一绝对启动描述交给 Core。不存在、不可执行、超时、版本过旧或能力异常时显示原生错误并退出。便携包不再内置 Codex 二进制，仍使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
+便携版是免安装单文件，双击后自动解压到临时目录并启动同源 Core 与桌面窗口，不需要 Node.js、pnpm 或启动令牌。使用 ChatGPT 时需要预先安装 Codex CLI 0.155.0 或更高版本，并确保新终端中 `codex --version` 可用；StackBridge 会检查 PATH 中的 Codex 候选并核验 `app-server` 能力。Codex 不存在、版本过旧或异常时只会把 ChatGPT 标记为不可用，不再阻止桌面窗口与 Core 启动；终端和 DeepSeek 仍可使用。便携包不内置 Codex 二进制，仍使用独立的 StackBridge Codex 数据目录完成 ChatGPT 登录。
 
 重新构建：
 
@@ -34,7 +34,7 @@ pnpm dev
 
 打开 `http://127.0.0.1:5173` 即可直接进入工作台。页面会自动建立仅限本机且受 Origin 校验保护的浏览器会话，不需要复制或输入启动令牌。界面默认使用英文，可在 Settings → Language 即时切换为简体中文，选择会在刷新和下次启动后保留。Codex 模型目录直接来自系统 Codex CLI 启动的 App Server，当前包含 Astra、Sol、Terra、Luna 和 GPT-5.5，新对话默认选择 Luna。可以新建本地、SSH 或远端 Docker 终端；在任意终端窗格右键可直接“解释最近输出 / 修复最近命令”，也可选择横向（左右）或纵向（上下）分栏。每个分栏都是独立 PTY，AI 上下文跟随当前聚焦窗格。受管 SSH/Docker 分栏会复制同一连接配置并重新核验目标；手输连接无法安全复制运行态，因此新分栏从本地 PowerShell 开始。每个窗格内侧使用一条紧凑状态线持续显示环境链、cwd 和 Shell，受管 PowerShell/Bash/Zsh 还会在每次提示符前回显环境链。终端输入流不设置 AI 字符触发器；键盘唤醒只使用快捷键，默认按 `F8` 在当前 xterm 光标旁打开/收起约 38px 高的一行式 Quick Ask，也可在 Settings 中修改。终端中的所有字符都会原样交给 Shell。桌面版在 StackBridge 窗口聚焦期间注册快捷键，窗口失焦后立即注销。中文输入法开始组合文字时也会临时注销，组合结束后恢复。未发送时只显示环境核验状态点、输入框和发送键，悬停或点击状态点可检查完整环境上下文。浮层不改变终端高度，空间不足时自动翻到光标上方。`Esc` 返回终端且不会覆盖尚未提交的输入；收到回答后只展开有界预览，完整内容与历史放在侧栏。远端连接复用系统 OpenSSH 配置与 `known_hosts`；首次安装或版本变化时，UI 会展示路径、版本、用户、主机指纹与权限，确认后才写入登录用户的 `~/.sbridge`。StackBridge 启动的 PTY 和远端 Shell 会在会话范围内声明 `xterm-256color`，并从远端已有 locale 中选择 UTF-8，避免 `TERM=dumb` 或 ASCII 登录环境破坏 Oh My Zsh 等提示符；这些设置只作用于当前会话，不修改服务器系统配置。在终端手输普通 `ssh host` 时，当前会话专用的 Bash/Zsh 集成会自动同步到远端用户私有的 `~/.sbridge/shell`；后续手输普通交互式 `docker exec -it ... bash/zsh` 时，StackBridge 会在容器内用 `mktemp` 创建仅当前用户可访问的随机临时目录，加载后立即删除，再正常读取原有 `.bashrc`/`.zshrc`。容器只拿到派生的命令作用域标记，可上报 prompt、命令、cwd 和退出码，但不能推送/弹出环境或改变 runtime binding；因此提示符持续显示完整链路、Agent 能关联容器命令输出，同时用户 Shell 配置不被改写。受管 Shell 在命令边界同步标准清屏序列，`clear`/`cls` 会同时清理当前视口并在刷新回放后保持一致。
 
-AI 使用独立的 StackBridge Codex 数据目录。点击“Sign in with ChatGPT / 使用 ChatGPT 登录”完成官方授权；StackBridge 不复制当前 Codex 应用的 token 文件。Codex 凭据固定写入 `%LOCALAPPDATA%\StackBridge\codex\auth.json`，避开 Windows Credential Manager 对长 OAuth token 的长度限制，并继承当前用户目录的文件访问控制。提问时默认发送当前环境、最近 20 条命令摘要和最近 3 条输出，总量最多 64 KiB。App Server 请求只使用当前稳定字段，避免未声明 experimental capability 时被拒绝；真实 ChatGPT 登录与真实 Luna 回答已在开发版和便携版通过。所有建议执行前都需要再次确认。
+AI 侧栏可以为新对话选择 ChatGPT 或 DeepSeek；对话开始后提供方和模型会锁定，选择历史对话会自动恢复对应设置。ChatGPT 使用独立的 StackBridge Codex 数据目录和官方授权，StackBridge 不复制当前 Codex 应用的 token 文件。DeepSeek 直接调用 Responses API，不经过 Codex；桌面版 API Key 通过 Electron `safeStorage` 使用 Windows 系统能力加密后写入 SQLite，浏览器开发模式只在当前 Core 会话中保存。发送给 DeepSeek 的终端上下文和最近历史分别限制为 64 KiB，模型没有执行工具，只能返回回答与待确认命令建议。所有建议执行前都需要再次确认。
 
 常用验证命令：
 
@@ -46,7 +46,7 @@ pnpm build
 
 当前工作区：
 
-- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell/SSH/Docker PTY、Shell 集成、Codex App Server、审批状态机和 SQLite/分块输出持久化。
+- `apps/core`：独立 Node.js Core、HTTP/WS 鉴权边界、PowerShell/SSH/Docker PTY、Shell 集成、ChatGPT/DeepSeek 路由、审批状态机和 SQLite/分块输出持久化。
 - `apps/web`：React/Vite+xterm.js 终端工作台、可关闭多标签、横向/纵向分栏、窗格内紧凑环境链、连续 AI 对话、上下文预览和命令建议卡。
 - `packages/protocol`：Web/Core 共用的运行时消息 schema。
 - `runtime`：Linux Go runtime，提供自安装/回滚、身份握手、结构化 argv 与经宿主核验的 Docker 执行；仓库内置 amd64/arm64 静态产物。

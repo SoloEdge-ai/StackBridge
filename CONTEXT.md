@@ -24,7 +24,7 @@ An internal request produced by the trusted gateway after resolving an Agent Ses
 
 ### ConversationSession
 
-The user-visible, continuous AI conversation. It maps to one Codex thread and may include history from several terminal tabs and environment layers. Changing terminal focus changes the default environment for the next turn; it never retargets an existing turn or proposal.
+The user-visible, continuous AI conversation. It freezes one provider and model, and may include history from several terminal tabs and environment layers. ChatGPT conversations map `providerSessionId` to one Codex thread; API providers may keep history locally without a remote session ID. Changing terminal focus changes the default environment for the next turn; it never retargets an existing turn or proposal.
 
 ### TerminalSession
 

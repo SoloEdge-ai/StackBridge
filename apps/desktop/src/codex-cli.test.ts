@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  detectCodexCli,
   requireCodexCli,
   resolveCodexCli,
   resolveCodexCliCandidates,
@@ -15,6 +16,18 @@ const directCodex: CodexLaunchDescriptor = {
 };
 
 describe("requireCodexCli", () => {
+  it("keeps desktop startup available when Codex cannot be discovered", async () => {
+    const detected = await detectCodexCli(
+      () => { throw new Error("Codex CLI was not found in PATH"); },
+      vi.fn<CodexCommandProbe>(),
+    );
+
+    expect(detected).toEqual({
+      available: false,
+      error: "Codex CLI was not found in PATH",
+    });
+  });
+
   it("accepts an installed Codex CLI and returns its verified version", async () => {
     const probe = vi.fn<CodexCommandProbe>()
       .mockResolvedValueOnce({ exitCode: 0, stdout: "codex-cli 0.155.0\r\n", stderr: "" })

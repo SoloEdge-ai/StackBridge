@@ -107,8 +107,8 @@ export function InlineAssistant({
   const rootRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (assistant.account?.authenticated) inputRef.current?.focus();
-  }, [assistant.account?.authenticated]);
+    if (assistant.providerReady) inputRef.current?.focus();
+  }, [assistant.providerReady]);
   const environment = context
     ? context.environmentStack.map((item) => localizedEnvironmentLabel(item.label, item.kind, locale)).join(" → ")
     : t("正在识别环境");
@@ -138,19 +138,19 @@ export function InlineAssistant({
     style: { left: anchor.left, top: anchor.top, width: anchor.width },
     "data-placement": anchor.placement,
   } as const;
-  if (!assistant.account) {
+  if (!assistant.activeProvider) {
     return (
       <section {...placementProps} className="inline-assistant compact" aria-label={t("快速询问 AI")}>
-        <div className="inline-ask-row"><span className="inline-ai-mark">✦</span><strong>{t("正在连接 Codex…")}</strong><button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button></div>
+        <div className="inline-ask-row"><span className="inline-ai-mark">✦</span><strong>{t("正在连接 AI 提供方…")}</strong><button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button></div>
       </section>
     );
   }
-  if (!assistant.account.authenticated) {
+  if (!assistant.providerReady) {
     return (
       <section {...placementProps} className="inline-assistant compact" aria-label={t("快速询问 AI")}>
         <div className="inline-ask-row">
-          <span className="inline-ai-mark">✦</span><strong>{t("需要先使用 ChatGPT 登录")}</strong>
-          <button type="button" className="primary-button compact" onClick={() => void assistant.login()}>{t("使用 ChatGPT 登录")}</button>
+          <span className="inline-ai-mark">✦</span><strong>{assistant.providerId === "chatgpt" ? t("需要先使用 ChatGPT 登录") : t("需要先配置 AI 提供方")}</strong>
+          <button type="button" className="primary-button compact" onClick={assistant.providerId === "chatgpt" ? () => void assistant.login() : onOpenHistory}>{assistant.providerId === "chatgpt" ? t("使用 ChatGPT 登录") : t("配置 DeepSeek")}</button>
           <button type="button" className="icon-button" aria-label={t("关闭快速询问")} onClick={onClose}>×</button>
         </div>
       </section>
@@ -205,7 +205,7 @@ export function InlineAssistant({
         ? <div className="inline-ai-pending">{assistant.pendingMessage}</div>
         : null}
       {turnPendingHere
-        ? <div className="thinking"><span /><span /><span /> {t("Codex 正在分析当前终端…")}</div>
+        ? <div className="thinking"><span /><span /><span /> {t("AI 正在分析当前终端…")}</div>
         : null}
       {assistant.error && assistant.errorTerminalId === context?.terminalSessionId
         ? <div className="panel-error">{assistant.error}</div>

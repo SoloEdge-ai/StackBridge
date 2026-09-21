@@ -13,17 +13,17 @@ Every proposal is tied to the terminal and verified environment that produced it
 
 ![StackBridge Quick Ask beside a live PowerShell prompt](docs/assets/stackbridge-quick-ask.png)
 
-> **Project status:** usable preview. The Windows x64 portable application, real PTYs, remote runtime verification, continuous Codex conversations, and approval-gated command execution are implemented.
+> **Project status:** usable preview. The Windows x64 portable application, real PTYs, remote runtime verification, ChatGPT/DeepSeek conversations, and approval-gated command execution are implemented.
 
 ## Highlights
 
 - **Real terminals:** local PowerShell through ConPTY, plus interactive SSH and remote Docker PTYs.
 - **Verified targets:** host keys, runtime identity, Docker daemon identity, full container identity, start time, UID, cwd, shell, and mounts are checked before privileged actions.
 - **Inline AI:** press `F8` to open Quick Ask beside the active xterm cursor without inserting AI trigger characters into the shell.
-- **Continuous conversations:** one Codex conversation can follow work across panes while each turn freezes its own execution scope.
+- **Provider-routed conversations:** choose ChatGPT through Codex sign-in or DeepSeek through an API key. Each conversation keeps its provider and model while each turn freezes its own execution scope.
 - **Approval-gated execution:** suggestions are immutable, expire after five minutes, and execute at most once in the original shell.
 - **Terminal workspace:** tabs, horizontal and vertical splits, output replay, refresh reattachment, and a single-writer lease.
-- **Local-first credentials:** Codex authentication and workspace data remain in the current Windows user profile.
+- **Local-first credentials:** Codex authentication, system-encrypted DeepSeek credentials, and workspace data remain in the current Windows user profile.
 
 ## Screenshots
 
@@ -54,8 +54,8 @@ Each release also includes `SHA256SUMS.txt`. The portable application is a singl
 ### Requirements
 
 - Windows x64.
-- Codex CLI `0.155.0` or newer available through `PATH`.
-- A ChatGPT account for Codex sign-in.
+- For ChatGPT: Codex CLI `0.155.0` or newer available through `PATH`, plus a ChatGPT account for Codex sign-in.
+- For DeepSeek: a DeepSeek API key. Codex is optional, so the app and terminals still start without it.
 
 Verify Codex before launching StackBridge:
 
@@ -63,7 +63,9 @@ Verify Codex before launching StackBridge:
 codex --version
 ```
 
-StackBridge validates every Codex candidate on `PATH`, resolves npm shims to their native executable, selects the newest compatible version, and checks `app-server` support before opening the workspace.
+StackBridge validates every Codex candidate on `PATH`, resolves npm shims to their native executable, selects the newest compatible version, and checks `app-server` support. A missing or incompatible Codex installation disables ChatGPT only; terminals and DeepSeek remain available.
+
+DeepSeek uses its Responses API directly. The desktop app encrypts the API key with Windows system protection before storing it; browser development mode keeps the key only for the current Core session. Models can return answers and command proposals, but cannot execute tools or bypass the existing approval chain.
 
 > The current executable is not code-signed. Windows SmartScreen may display a warning on first launch.
 
@@ -93,7 +95,7 @@ The output uses the version from `apps/desktop/package.json`, for example `relea
 |---|---|
 | `apps/desktop` | Electron window, Core lifecycle, desktop shortcut registration, and portable startup checks |
 | `apps/web` | React, xterm.js, tabs, split layouts, Quick Ask, conversations, and approval UI |
-| `apps/core` | HTTP/WebSocket boundary, PTYs, SSH/Docker sessions, Codex App Server, approvals, and persistence |
+| `apps/core` | HTTP/WebSocket boundary, PTYs, SSH/Docker sessions, ChatGPT/DeepSeek provider routing, approvals, and persistence |
 | `packages/protocol` | Shared Zod schemas and TypeScript contracts |
 | `runtime` | Linux amd64/arm64 runtime for identity verification, structured execution, Docker inspection, installation, and rollback |
 
