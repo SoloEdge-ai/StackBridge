@@ -4,9 +4,9 @@ import type { AssistantContextPreview, TerminalAttachment } from "@stackbridge/p
 import { useLanguage } from "../i18n.js";
 import type { TerminalRanges } from "./terminal-ranges.js";
 
-export function TerminalContextOverlay({ terminal, ranges, revision, attachments, commands, manual, disabled, onSelect }: {
+export function TerminalContextOverlay({ terminal, ranges, revision, attachments, commands, disabled, onSelect }: {
   terminal: Terminal | undefined; ranges: TerminalRanges | undefined; revision: number;
-  attachments: TerminalAttachment[]; commands: AssistantContextPreview["commands"]; manual: boolean; disabled: boolean;
+  attachments: TerminalAttachment[]; commands: AssistantContextPreview["commands"]; disabled: boolean;
   onSelect(ids: string[]): void;
 }) {
   const { locale } = useLanguage();
@@ -71,8 +71,9 @@ export function TerminalContextOverlay({ terminal, ranges, revision, attachments
         const right = row === item.rows.last ? (terminal.cols - item.rows.lastColumn) / terminal.cols * 100 : 0;
         return <span key={row} className="context-row-paint" style={{ top: index * rowHeight, height: rowHeight, left: `${left}%`, right: `${right}%` }} />;
       })}
-      {!disabled && item.firstSpan ? <button aria-label="Extend context start" className="context-range-handle start" onPointerDown={(event) => drag(event, "start", item.attachment.commandId)} /> : null}
-      {!disabled && item.lastSpan ? <button aria-label="Extend context end" className="context-range-handle end" onPointerDown={(event) => drag(event, "end", item.attachment.commandId)} /> : null}
+      {!item.attachment.includeCommand && item.firstSpan ? <span className="context-source-label">{item.attachment.command}</span> : null}
+      {!disabled && item.firstSpan && item.attachment === attachments[0] ? <button aria-label="Extend context start" className="context-range-handle start" onPointerDown={(event) => drag(event, "start", item.attachment.commandId)} /> : null}
+      {!disabled && item.lastSpan && item.attachment === attachments.at(-1) ? <button aria-label="Extend context end" className="context-range-handle end" onPointerDown={(event) => drag(event, "end", item.attachment.commandId)} /> : null}
     </div> : null)}
     {missing ? <span className="context-range-unavailable">{locale === "zh-CN" ? "部分内容已不在当前终端画面；请在附件列表查看" : "Some content is no longer locatable; inspect the attachment list"}</span> : null}
   </div>;

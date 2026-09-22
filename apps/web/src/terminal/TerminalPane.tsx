@@ -11,9 +11,12 @@ import { decodeServerMessage } from "./terminal-stream.js";
 import type { ConnectionState, TerminalContext, TerminalCursorAnchor } from "./types.js";
 
 function createXtermCursorAnchor(host: HTMLElement): TerminalCursorAnchor {
+  let lastVisibleRect: DOMRect | undefined;
   return {
     getCursorRect() {
-      return host.querySelector<HTMLElement>(".xterm-cursor")?.getBoundingClientRect();
+      const rect = host.querySelector<HTMLElement>(".xterm-cursor")?.getBoundingClientRect();
+      if (rect && rect.height > 0) lastVisibleRect = rect;
+      return lastVisibleRect;
     },
     observe(listener) {
       const screen = host.querySelector<HTMLElement>(".xterm-screen");
@@ -38,7 +41,7 @@ export function TerminalPane({
   onCursorAnchor,
   onUnavailable,
   quickAskShortcut,
-  attachments = [], contextCommands = [], manualContext = false, contextDisabled = false, onContextSelect = () => {},
+  attachments = [], contextCommands = [], contextDisabled = false, onContextSelect = () => {},
 }: {
   sessionId: string;
   active: boolean;
@@ -49,7 +52,6 @@ export function TerminalPane({
   quickAskShortcut: string;
   attachments?: TerminalAttachment[];
   contextCommands?: AssistantContextPreview["commands"];
-  manualContext?: boolean;
   contextDisabled?: boolean;
   onContextSelect?(ids: string[]): void;
 }) {
@@ -219,6 +221,6 @@ export function TerminalPane({
   }, [sessionId]);
   return <div className="terminal-host" ref={hostRef}>
     <TerminalContextOverlay terminal={terminalRef.current} ranges={rangesRef.current} revision={rangeRevision} attachments={attachments}
-      commands={contextCommands} manual={manualContext} disabled={contextDisabled} onSelect={onContextSelect} />
+      commands={contextCommands} disabled={contextDisabled} onSelect={onContextSelect} />
   </div>;
 }

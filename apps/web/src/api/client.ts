@@ -16,6 +16,7 @@ export function apiError(payload: Record<string, unknown>, fallback: string, t: 
   if (typeof payload.error !== "string") return fallback;
   const messages: Record<string, MessageKey> = {
     context_preparation_expired: "上下文预览已过期，请检查刷新后的范围并重新发送。",
+    context_preparation_capacity: "上下文预览暂时已达容量上限，请稍后刷新重试。",
     context_preparation_mismatch: "上下文不属于当前对话或终端，请重新选择。",
     conversation_turn_in_progress: "当前对话仍在处理中，请稍后再发送。",
     conversation_turn_cancelled: "本次请求已停止，附件未标记为发送成功。",

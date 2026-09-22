@@ -48,6 +48,6 @@ export function useFloatingAssistant(id: string, pane: HTMLElement | undefined, 
     target.addEventListener("pointermove", move); target.addEventListener("pointerup", stop); target.addEventListener("pointercancel", stop);
   };
   const style: CSSProperties = frame ? { ...clamp(frame), maxHeight: Math.max(0, bounds.height - 46), overflow: "auto" }
-    : { maxHeight: Math.max(120, bounds.height - 46), overflow: "auto" };
+    : { maxHeight: bounds.height > 0 ? Math.max(0, bounds.height - 46) : undefined, overflow: "auto" };
   return { fixed: !!frame, style, begin, reset() { sessionStorage.removeItem(floatingFrameKey(id)); setFrame(undefined); } };
 }

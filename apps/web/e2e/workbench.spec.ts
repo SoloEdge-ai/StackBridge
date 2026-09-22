@@ -243,6 +243,8 @@ test("highlights whole command blocks and supports range dragging and a movable 
   const quick = page.locator(".inline-assistant");
   await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();
   await expect(page.locator(".terminal-context-highlight")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Extend context start" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Extend context end" })).toHaveCount(1);
   await quick.getByRole("button", { name: "Context ×3" }).click();
   await quick.getByLabel("Context mode").selectOption("manual");
   await quick.getByLabel("Write-Output 'CTX_ONE'", { exact: true }).check();
@@ -273,6 +275,14 @@ test("highlights whole command blocks and supports range dragging and a movable 
   await page.screenshot({ path: resolve(screenshotDirectory, "terminal-context-highlights.png") });
   await quick.getByRole("button", { name: "Follow cursor" }).click();
   await expect(quick).not.toHaveAttribute("data-placement", "fixed");
+  await page.keyboard.press("Escape");
+  await terminal.focus();
+  await terminal.pressSequentially("Clear-Host", { delay: 3 });
+  await terminal.press("Enter");
+  await expect(page.locator(".terminal-context-highlight")).toHaveCount(0);
+  await expect(page.locator(".context-range-unavailable")).toBeVisible();
+  await page.keyboard.press("F8");
+  await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();
 });
 
 test.afterEach(async ({ page }) => {
@@ -498,6 +508,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
     const body = await response.json() as { data: Array<{ command: string }> };
     return body.data.at(-1)?.command;
   }, activeSessionId)).toBe("1..80 | ForEach-Object { Write-Output $_ }; Write-Output 'SCROLL_END_80'");
+  await expect(page.locator(".terminal-pane-shell.active .xterm-rows")).toContainText("SCROLL_END_80");
   await expect.poll(async () => {
     const terminalBox = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
     const cursorBox = await page.locator(".terminal-pane-shell.active .xterm-cursor").evaluate((element) => {
@@ -505,6 +516,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     });
     return terminalBox !== null && cursorBox !== null
+      && cursorBox.height > 0 && cursorBox.y < terminalBox.y + terminalBox.height
       && cursorBox.y > terminalBox.y + terminalBox.height - 80;
   }).toBe(true);
   const terminalBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
@@ -521,7 +533,14 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   expect(terminalBoxWithFlippedQuickAsk).not.toBeNull();
   expect(flippedQuickAskBox).not.toBeNull();
   expect(Math.abs(terminalBoxWithFlippedQuickAsk!.height - terminalBoxBeforeFlippedQuickAsk!.height)).toBeLessThan(2);
-  expect(Math.abs((flippedQuickAskBox!.y + flippedQuickAskBox!.height) - cursorBoxBeforeFlippedQuickAsk!.y)).toBeLessThan(20);
+  await expect.poll(async () => {
+    const box = await inlineAssistant.boundingBox();
+    const cursor = await page.locator(".terminal-pane-shell.active .xterm-cursor").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { y: rect.y, height: rect.height };
+    });
+    return box !== null && cursor.height > 0 && Math.abs(box.y + box.height - cursor.y) < 20;
+  }).toBe(true);
   await page.keyboard.press("Escape");
 });
 

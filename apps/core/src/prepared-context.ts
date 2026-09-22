@@ -17,8 +17,8 @@ export class PreparedContexts {
 
   prepare(terminal: TerminalSession, selection: ContextSelection, history: ConversationMessage[], owner: string): AssistantContextPreview {
     for (const [id, record] of this.records) if (record.expires <= this.now().getTime()) this.records.delete(id);
-    // Bound memory for abandoned previews while allowing several panes and browsers.
-    while (this.records.size >= 256) this.records.delete(this.records.keys().next().value!);
+    // Never revoke an issued preview before its expiry. Reject excess preparations instead.
+    if (this.records.size >= 1024) throw new PreparedContextError("context_preparation_capacity");
     const mode = selection.contextMode ?? "auto";
     const commands = terminal.commands();
     const environment = terminal.context();

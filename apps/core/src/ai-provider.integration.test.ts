@@ -358,10 +358,10 @@ describe("AI provider HTTP boundary", () => {
     expect(withoutContext.status).toBe(200);
     expect(deepSeekInputText(requestBodies[5])).not.toContain("<terminal_context>");
     expect(deepSeekInputText(requestBodies[5])).not.toContain("C:\\private-work");
-    const prepare = async () => {
-      const response = await fetch(`${baseUrl}/v1/terminal-sessions/${terminal.id}/ai-context`, {
+    const prepare = async (selection: object = {}, terminalId = terminal.id) => {
+      const response = await fetch(`${baseUrl}/v1/terminal-sessions/${terminalId}/ai-context`, {
         method: "POST", headers,
-        body: JSON.stringify({ conversationId: created.id, contextMode: "auto" }),
+        body: JSON.stringify({ conversationId: created.id, contextMode: "auto", ...selection }),
       });
       expect(response.status).toBe(200);
       return await response.json() as { preparedId: string; outputCount: number; attachments: Array<{ command: string; output: string }> };
@@ -399,11 +399,49 @@ describe("AI provider HTTP boundary", () => {
     const expired = await prepare();
     clock += 11 * 60_000;
     expect((await sendPrepared(expired.preparedId)).status).toBe(409);
+    const repeat = await prepare({ contextMode: "manual", commandIds: [blocks.data[3]!.id] });
+    expect(repeat.attachments).toMatchObject([{ command: "echo FOUR", output: "OUTPUT_FOUR\r\n", repeated: true }]);
+    expect((await sendPrepared(repeat.preparedId)).status).toBe(200);
+    expect(await prepare()).toMatchObject({ outputCount: 0 });
+    const noTerminal = await prepare({ contextMode: "none" });
+    expect(noTerminal.outputCount).toBe(0);
+    expect((await sendPrepared(noTerminal.preparedId)).status).toBe(200);
+    const noTerminalInput = deepSeekInputText(requestBodies.at(-1));
+    expect(noTerminalInput).not.toContain("<terminal_context>");
+    expect(taggedBlock(noTerminalInput, "conversation_history")).toContain("OUTPUT_FOUR");
+    const newConversationResponse = await fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST", headers, body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, providerId: "deepseek", model: "deepseek-test" }),
+    });
+    const newConversation = await newConversationResponse.json() as { id: string };
+    expect(await prepare({ conversationId: newConversation.id })).toMatchObject({ outputCount: 3 });
+    const draft = await prepare({ conversationId: undefined, prepare: true });
+    const countBefore = (await (await fetch(`${baseUrl}/v1/conversations`, { headers })).json() as { data: unknown[] }).data.length;
+    const concurrentCreates = await Promise.all([0, 1].map(() => fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST", headers, body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, providerId: "deepseek", model: "deepseek-test", preparedContextId: draft.preparedId }),
+    })));
+    expect(concurrentCreates.map((response) => response.status).sort()).toEqual([201, 409]);
+    expect((await (await fetch(`${baseUrl}/v1/conversations`, { headers })).json() as { data: unknown[] }).data).toHaveLength(countBefore + 1);
+    const otherTerminalResponse = await fetch(`${baseUrl}/v1/terminal-sessions`, {
+      method: "POST", headers, body: JSON.stringify({ cols: 100, rows: 30 }),
+    });
+    const otherTerminal = await otherTerminalResponse.json() as { id: string };
+    contextPty.emitData(marker({ type: "commandStart", command: "echo CROSS_PANE", cwd: "C:\\private-work", shell: "powershell", user: "test-user" }));
+    contextPty.emitData("CROSS_PANE_OUTPUT\r\n");
+    contextPty.emitData(marker({ type: "commandEnd", cwd: "C:\\private-work", exitCode: 0 }));
+    const otherPrepared = await prepare({}, otherTerminal.id);
+    expect(otherPrepared.outputCount).toBe(1);
+    expect((await sendPrepared(otherPrepared.preparedId)).status).toBe(409);
+    const otherTurn = await fetch(`${baseUrl}/v1/conversations/${created.id}/turns`, {
+      method: "POST", headers, body: JSON.stringify({ schemaVersion: 2, terminalSessionId: otherTerminal.id, message: "Continue in another pane", preparedContextId: otherPrepared.preparedId }),
+    });
+    expect(otherTurn.status).toBe(200);
+    expect(await prepare({}, otherTerminal.id)).toMatchObject({ outputCount: 0 });
+    expect(await prepare()).toMatchObject({ outputCount: 1 });
     const restoredCore = createCoreServer({ allowedOrigins: [origin], terminalSessions: terminals, conversations: new ConversationService(terminals, ai, () => new Date(clock), workspace), ai });
     try {
       const restoredUrl = await listenCore(restoredCore);
       const restoredCookie = await authenticate(restoredUrl);
-      const restored = await fetch(`${restoredUrl}/v1/terminal-sessions/${terminal.id}/ai-context`, {
+      const restored = await fetch(`${restoredUrl}/v1/terminal-sessions/${otherTerminal.id}/ai-context`, {
         method: "POST", headers: { ...headers, cookie: restoredCookie }, body: JSON.stringify({ conversationId: created.id, contextMode: "auto" }),
       });
       expect(await restored.json()).toMatchObject({ outputCount: 0 });

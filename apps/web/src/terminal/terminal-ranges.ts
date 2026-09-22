@@ -1,4 +1,4 @@
-import type { IMarker, Terminal } from "@xterm/xterm";
+import type { IDisposable, IMarker, Terminal } from "@xterm/xterm";
 
 interface Position { offset: number; marker: IMarker; column: number; columns: number }
 /** Ordered terminal writes own byte-to-buffer positions; React never infers them from text. */
@@ -6,7 +6,16 @@ export class TerminalRanges {
   private positions: Position[] = [];
   private queue = Promise.resolve();
   private disposed = false;
-  constructor(private readonly terminal: Terminal, private readonly changed: () => void) {}
+  private readonly subscriptions: IDisposable[];
+  constructor(private readonly terminal: Terminal, private readonly changed: () => void) {
+    this.subscriptions = [
+      terminal.parser.registerCsiHandler({ final: "J" }, (params) => {
+        if (params[0] === 2 || params[0] === 3) this.clear();
+        return false;
+      }),
+      terminal.buffer.onBufferChange(() => this.clear()),
+    ];
+  }
 
   write(data: string, start: number, done?: () => void): void {
     this.queue = this.queue.then(async () => {
@@ -14,7 +23,6 @@ export class TerminalRanges {
       let offset = start;
       // Newlines and stream edges provide stable positions for block boundaries and deltas.
       for (const part of data.match(/[^\n]*\n|[^\n]+$/g) ?? []) {
-        if (/\x1b\[(?:2|3)J/.test(part)) this.clear();
         this.record(offset);
         await new Promise<void>((resolve) => this.terminal.write(part, resolve));
         offset += new TextEncoder().encode(part).length;
@@ -51,5 +59,5 @@ export class TerminalRanges {
     for (const position of this.positions) position.marker.dispose();
     this.positions = [];
   }
-  dispose(): void { this.disposed = true; this.clear(); }
+  dispose(): void { this.disposed = true; this.subscriptions.forEach((item) => item.dispose()); this.clear(); }
 }

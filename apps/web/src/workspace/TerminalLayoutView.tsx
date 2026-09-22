@@ -109,7 +109,6 @@ export function TerminalLayoutView(props: TerminalLayoutViewProps) {
           quickAskShortcut={props.shortcut}
           attachments={(props.assistant.viewedAttachments ?? (isActive ? props.assistant.contextPreview?.attachments : []) ?? []).filter((item) => item.terminalSessionId === pane.id)}
           contextCommands={isActive ? props.assistant.contextPreview?.commands ?? [] : []}
-          manualContext={props.assistant.contextSelection.contextMode === "manual"}
           contextDisabled={props.assistant.sending || !!props.assistant.viewedAttachments}
           onContextSelect={(commandIds) => props.assistant.setContextSelection({ contextMode: "manual", commandIds })}
         />

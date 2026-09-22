@@ -107,6 +107,13 @@ export function useAssistantController(terminalId: string, terminalContext?: Ter
   const turnRequestVersion = useRef(0);
   const activeTurnConversationId = useRef<string | undefined>(undefined);
   const selectionKey = JSON.stringify(contextSelection);
+  const outputSequence = useRef(terminalContext?.outputSequence);
+  outputSequence.current = terminalContext?.outputSequence;
+  const [previewOutputSequence, setPreviewOutputSequence] = useState(outputSequence.current);
+  useEffect(() => {
+    const timer = window.setInterval(() => setPreviewOutputSequence(outputSequence.current), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     if (sending || !terminalId) return;
     const abort = new AbortController();
@@ -121,7 +128,7 @@ export function useAssistantController(terminalId: string, terminalContext?: Ter
       if (!abort.signal.aborted) { setContextPreview(preview); setContextPreviewPending(false); }
     }).catch(() => { if (!abort.signal.aborted) { setContextPreviewError(true); setContextPreviewPending(false); setContextPreview(undefined); } });
     return () => abort.abort();
-  }, [terminalId, terminalContext?.contextVersion, terminalContext?.outputSequence, conversation?.id, sending, selectionKey, previewRevision]);
+  }, [terminalId, terminalContext?.contextVersion, previewOutputSequence, conversation?.id, sending, selectionKey, previewRevision]);
 
   const refreshProviders = useCallback(async () => {
     const response = await fetch("/v1/ai/providers", { cache: "no-store" });

@@ -117,7 +117,6 @@ export class ConversationService {
   }
 
   async create(input: CreateConversationRequest, owner = ""): Promise<ConversationSnapshot> {
-    if (input.preparedContextId) this.prepared.get(input.preparedContextId, owner, input.terminalSessionId);
     if (this.terminals.get(input.terminalSessionId) === undefined) {
       throw new ConversationTerminalNotFoundError();
     }
@@ -128,11 +127,14 @@ export class ConversationService {
         : "gpt-5.6-luna"
     );
     const engine = this.requireEngine(providerId);
+    const conversationId = randomUUID();
+    // Claim the draft before starting a provider session; concurrent creates cannot both win.
+    if (input.preparedContextId) this.prepared.bind(input.preparedContextId, owner, input.terminalSessionId, conversationId);
     const providerSessionId = await engine.startSession(model);
     const now = this.now().toISOString();
     const snapshot: ConversationSnapshot = {
       schemaVersion: 2,
-      id: randomUUID(),
+      id: conversationId,
       title: "新对话",
       providerId,
       model,
@@ -143,7 +145,6 @@ export class ConversationService {
       proposals: [],
     };
     this.conversations.set(snapshot.id, { snapshot });
-    if (input.preparedContextId) this.prepared.bind(input.preparedContextId, owner, input.terminalSessionId, snapshot.id);
     this.persistence?.saveConversation(snapshot);
     return clone(snapshot);
   }

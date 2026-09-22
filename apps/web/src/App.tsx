@@ -10,6 +10,7 @@ import {
   type CreateTerminalSessionRequest,
 } from "@stackbridge/protocol";
 import { localizedKnownText, useLanguage } from "./i18n.js";
+import { floatingFrameKey } from "./assistant/use-floating-assistant.js";
 import {
   findPane,
   flattenPanes,
@@ -294,7 +295,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     const tab = tabs[tabIndex];
     if (!tab) return;
     const layout = removePane(tab.layout, paneId);
-    sessionStorage.removeItem(`stackbridge.quickAskFrame.${paneId}`);
+    sessionStorage.removeItem(floatingFrameKey(paneId));
     const next = layout
       ? tabs.map((item) => item.id === tabId
         ? {
@@ -331,7 +332,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       return;
     }
     const index = tabs.findIndex((item) => item.id === tabId);
-    for (const paneId of paneIds) sessionStorage.removeItem(`stackbridge.quickAskFrame.${paneId}`);
+    for (const paneId of paneIds) sessionStorage.removeItem(floatingFrameKey(paneId));
     const next = tabs.filter((item) => item.id !== tabId);
     persistTabs(next);
     setPaneRuntime((current) => {
