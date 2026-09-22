@@ -38,8 +38,6 @@ export function TerminalContextOverlay({ terminal, ranges, revision, attachments
   });
   const drag = (event: React.PointerEvent<HTMLButtonElement>, edge: "start" | "end", commandId: string) => {
     event.preventDefault(); event.stopPropagation();
-    const button = event.currentTarget;
-    button.setPointerCapture(event.pointerId);
     const initial = commands.findIndex((item) => item.id === commandId);
     const selected = commands.map((item, index) => attachments.some((attachment) => attachment.commandId === item.id) ? index : -1).filter((index) => index >= 0);
     const anchor = edge === "start" ? Math.max(initial, ...selected) : Math.min(initial, ...selected);
@@ -60,8 +58,9 @@ export function TerminalContextOverlay({ terminal, ranges, revision, attachments
       });
       onSelect(commands.slice(Math.min(anchor, target), Math.max(anchor, target) + 1).map((command) => command.id));
     };
-    const finish = () => { button.removeEventListener("pointermove", move); button.removeEventListener("pointerup", finish); button.removeEventListener("pointercancel", finish); };
-    button.addEventListener("pointermove", move); button.addEventListener("pointerup", finish); button.addEventListener("pointercancel", finish);
+    // The outer handle moves to a different block as the range grows; it can unmount mid-drag.
+    const finish = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", finish); window.addEventListener("pointercancel", finish);
   };
   return <div className="terminal-context-overlay" aria-label={locale === "zh-CN" ? "待发送终端内容" : "Terminal attachments"}>
     {highlights.map((item) => item ? <div key={`${item.attachment.commandId}:${item.spanIndex}`} className="terminal-context-highlight" style={{ top: item.top, height: item.height }} title={item.attachment.command}>

@@ -223,12 +223,17 @@ describe("AI provider HTTP boundary", () => {
 
   it("locks a conversation to DeepSeek and routes every turn through Responses API", async () => {
     const requestBodies: unknown[] = [];
+    let failNext = false;
     deepSeek = createServer((request, response) => {
       let body = "";
       request.setEncoding("utf8");
       request.on("data", (chunk) => { body += chunk; });
       request.on("end", () => {
         requestBodies.push(JSON.parse(body));
+        if (failNext) {
+          failNext = false;
+          response.writeHead(503); response.end("fixture unavailable"); return;
+        }
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({
           id: `response-${requestBodies.length}`,
@@ -437,6 +442,12 @@ describe("AI provider HTTP boundary", () => {
     expect(otherTurn.status).toBe(200);
     expect(await prepare({}, otherTerminal.id)).toMatchObject({ outputCount: 0 });
     expect(await prepare()).toMatchObject({ outputCount: 1 });
+    const failedPreview = await prepare();
+    failNext = true;
+    expect((await sendPrepared(failedPreview.preparedId)).ok).toBe(false);
+    expect(await prepare()).toMatchObject({ outputCount: 1 });
+    const failedHistory = await (await fetch(`${baseUrl}/v1/conversations/${created.id}`, { headers })).json() as { messages: Array<{ contextSnapshot?: { status: string } }> };
+    expect(failedHistory.messages.at(-1)?.contextSnapshot?.status).toBe("failed");
     const restoredCore = createCoreServer({ allowedOrigins: [origin], terminalSessions: terminals, conversations: new ConversationService(terminals, ai, () => new Date(clock), workspace), ai });
     try {
       const restoredUrl = await listenCore(restoredCore);
