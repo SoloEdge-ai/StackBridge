@@ -259,7 +259,8 @@ describe("AI provider HTTP boundary", () => {
       model: "deepseek-test",
       apiKey: "route-secret",
     });
-    const terminals = new TerminalSessionManager(() => new ControlledPty());
+    const contextPty = new ControlledPty();
+    const terminals = new TerminalSessionManager(() => contextPty, { shellIntegrationTokenFactory: () => "context-test" });
     const conversations = new ConversationService(terminals, ai);
     core = createCoreServer({
       allowedOrigins: [origin],
@@ -317,6 +318,45 @@ describe("AI provider HTTP boundary", () => {
       .toBeLessThanOrEqual(64 * 1_024);
     expect(Buffer.byteLength(taggedBlock(thirdInput, "terminal_context"), "utf8"))
       .toBeLessThanOrEqual(64 * 1_024);
+    const marker = (event: object) => `\x1b]777;stackbridge;context-test;${Buffer.from(JSON.stringify(event)).toString("base64")}\x07`;
+    for (const name of ["ONE", "TWO", "THREE", "FOUR"]) {
+      contextPty.emitData(marker({ type: "commandStart", command: `echo ${name}`, cwd: "C:\\private-work", shell: "powershell", user: "test-user" }));
+      contextPty.emitData(`OUTPUT_${name}\r\n`);
+      contextPty.emitData(marker({ type: "commandEnd", cwd: "C:\\private-work", exitCode: 0 }));
+    }
+    const blocksResponse = await fetch(`${baseUrl}/v1/terminal-sessions/${terminal.id}/commands`, { headers });
+    const blocks = await blocksResponse.json() as { data: Array<{ id: string }> };
+    expect(blocks.data).toHaveLength(4);
+    const selectedId = blocks.data[0]!.id;
+    const previewResponse = await fetch(`${baseUrl}/v1/terminal-sessions/${terminal.id}/ai-context`, {
+      method: "POST", headers, body: JSON.stringify({ contextMode: "manual", commandIds: [selectedId] }),
+    });
+    expect(previewResponse.status).toBe(200);
+    expect(await previewResponse.json()).toMatchObject({ outputCount: 1, bytes: expect.any(Number) });
+    const manual = await fetch(`${baseUrl}/v1/conversations/${created.id}/turns`, {
+      method: "POST", headers,
+      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, message: "Selected only", contextMode: "manual", commandIds: [selectedId] }),
+    });
+    expect(manual.status).toBe(200);
+    const selectedContext = taggedBlock(deepSeekInputText(requestBodies[3]), "terminal_context");
+    expect(selectedContext).toContain("OUTPUT_ONE");
+    expect(selectedContext).not.toContain("echo TWO");
+    const automatic = await fetch(`${baseUrl}/v1/conversations/${created.id}/turns`, {
+      method: "POST", headers,
+      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, message: "Automatic again", contextMode: "auto", commandIds: [selectedId] }),
+    });
+    expect(automatic.status).toBe(200);
+    const autoContext = taggedBlock(deepSeekInputText(requestBodies[4]), "terminal_context");
+    expect(autoContext).not.toContain("OUTPUT_ONE");
+    expect(autoContext).toContain("OUTPUT_TWO");
+    expect(autoContext).toContain("OUTPUT_FOUR");
+    const withoutContext = await fetch(`${baseUrl}/v1/conversations/${created.id}/turns`, {
+      method: "POST", headers,
+      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, message: "Only this question", contextMode: "none" }),
+    });
+    expect(withoutContext.status).toBe(200);
+    expect(deepSeekInputText(requestBodies[5])).not.toContain("<terminal_context>");
+    expect(deepSeekInputText(requestBodies[5])).not.toContain("C:\\private-work");
   });
 
   it("cancels an active DeepSeek turn through the conversation stop endpoint", async () => {

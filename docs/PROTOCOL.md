@@ -124,6 +124,10 @@ Core 最多同时持有 16 个终端会话；达到上限时先淘汰已退出�
 
 保留 `/v1/ai/account/*` 作为 ChatGPT/Codex 登录接口。Codex 不可用时这些接口和 ChatGPT 新会话返回提供方不可用错误，但不会影响终端与 DeepSeek。
 
+每条 turn 支持 `contextMode: auto | manual | none`。`auto` 附带最近 20 条命令信息和最近 3 条输出，忽略残留的 `commandIds`；`manual` 仅附带 `commandIds` 指定的命令块和当前环境；`none` 不发送新的终端上下文，已有对话历史仍保留。省略模式保留旧版自动上下文加显式命令 ID 的行为。
+
+`POST /v1/terminal-sessions/:id/ai-context` 使用相同的可选 `contextMode` 和 `commandIds` 返回本地预览：序列化终端上下文估算字节数 `bytes`、附带输出数量 `outputCount`、最近 20 条命令候选 `commands`（输出预览末尾 4,000 字符）。估算不包含问题、对话历史及提供方封装。预览与发送共用上下文选择逻辑；Core 仍独立冻结执行审批目标。
+
 ## 远端会话 HTTP
 
 所有端点继续要求有效的本地认证 cookie 和允许的 `Origin`。

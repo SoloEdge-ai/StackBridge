@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import { localizedEnvironmentLabel, useLanguage } from "../i18n.js";
 import type { TerminalContext, TerminalCursorAnchor } from "../terminal/types.js";
 import { ProposalCard } from "./AssistantPanel.js";
+import { ContextPicker } from "./ContextPicker.js";
 import type { AssistantController } from "./use-assistant-controller.js";
 
 interface QuickAskAnchor {
@@ -122,9 +123,7 @@ export function InlineAssistant({
   const expanded = !!latestAssistantMessage || turnPendingHere
     || (assistant.error !== undefined && assistant.errorTerminalId === context?.terminalSessionId);
   const anchor = useTerminalCursorAnchor(rootRef, paneElement, cursorAnchor, expanded);
-  const recentOutputCount = Math.min(3, context?.recentCommandIds.length ?? 0);
-  const outputLabel = locale === "zh-CN" ? `${recentOutputCount} 条输出` : `${recentOutputCount} outputs`;
-  const contextSummary = `${environment} · ${context?.cwd || "—"} · ${context?.shell || "—"} · ${outputLabel}`;
+  const contextSummary = `${environment} · ${context?.cwd || "—"} · ${context?.shell || "—"}`;
 
   useLayoutEffect(() => {
     const input = inputRef.current;
@@ -158,6 +157,7 @@ export function InlineAssistant({
   }
   return (
     <section {...placementProps} className="inline-assistant" aria-label={t("快速询问 AI")}>
+      <ContextPicker assistant={assistant} context={context} />
       <div className="inline-ask-row">
         <button
           type="button"

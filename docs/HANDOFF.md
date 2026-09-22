@@ -30,6 +30,8 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 
 ## 实机状态
 
+- Quick Ask 追加 Provider/model、每条消息 auto/manual/none 上下文选择和本地 KiB 估算；完整 AI 面板共用选择。详见 `docs/design/QUICK_ASK_CONTEXT_SELECTION.md`。PR #3 保持打开，等待用户 EXE 验收，不得自动合并。
+
 - Windows 本地 PowerShell：真实输入、Unicode、emoji、resize、Ctrl+C、同 Shell 状态、刷新重附着已验证。
 - `friden@friden-dev-cube`：真实 Zsh PTY、cwd、中文输出和 Ctrl+C 已验证。
 - `stackbridge-m0b1-ubuntu22`：真实 Bash PTY、三层环境路径、环境变量/cwd 保留和刷新重附着已验证。

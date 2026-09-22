@@ -240,9 +240,18 @@ export const createTurnRequestSchema = z.object({
   terminalSessionId: z.uuid(),
   message: z.string().trim().min(1).max(32_768),
   commandIds: z.array(z.uuid()).max(20).optional(),
+  contextMode: z.enum(["auto", "manual", "none"]).optional(),
 }).strict();
 
 export type CreateTurnRequest = z.infer<typeof createTurnRequestSchema>;
+
+export const contextSelectionSchema = createTurnRequestSchema.pick({ contextMode: true, commandIds: true });
+export type ContextSelection = z.infer<typeof contextSelectionSchema>;
+export interface AssistantContextPreview {
+  bytes: number;
+  outputCount: number;
+  commands: Array<{ id: string; command: string; cwd: string; exitCode?: number; output: string }>;
+}
 
 export const approvalDecisionRequestSchema = z.object({
   schemaVersion: schemaVersion2,

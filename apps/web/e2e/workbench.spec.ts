@@ -17,6 +17,16 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   let turnCount = 0;
   const conversationId = "00000000-0000-4000-8000-000000000101";
   const createdAt = "2026-09-21T00:00:00.000Z";
+  const selectedCommandId = "00000000-0000-4000-8000-000000000901";
+  await page.route("**/v1/terminal-sessions/*/ai-context", async (route) => {
+    const selection = route.request().postDataJSON() as { contextMode: string; commandIds?: string[] };
+    const count = selection.contextMode === "none" ? 0 : selection.contextMode === "manual" ? selection.commandIds?.length ?? 0 : 3;
+    await route.fulfill({ json: { bytes: selection.contextMode === "none" ? 0 : 512 + count * 1024, outputCount: count, commands: [
+      { id: selectedCommandId, command: "echo SELECT_ME", cwd: "C:\\work", exitCode: 0, output: "SELECT_ME" },
+      { id: "00000000-0000-4000-8000-000000000902", command: "echo IGNORE_ME", cwd: "C:\\work", exitCode: 0, output: "IGNORE_ME" },
+      { id: "00000000-0000-4000-8000-000000000903", command: "echo THIRD", cwd: "C:\\work", exitCode: 0, output: "THIRD" },
+    ] } });
+  });
   await page.route("**/v1/ai/account/status", async (route) => {
     await route.fulfill({
       status: 200,
@@ -192,10 +202,28 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await page.keyboard.press("F8");
   const quickAsk = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(quickAsk).toBeVisible();
+  await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
+  await quickAsk.getByRole("button", { name: /Context ×/ }).click();
+  await quickAsk.getByLabel("Context mode").selectOption("none");
+  await expect(quickAsk).toContainText("0.0 KiB");
+  const nextTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
   await quickAsk.locator("textarea").fill("Continue the DeepSeek conversation");
   await quickAsk.locator("textarea").press("Enter");
+  expect((await nextTurn).postDataJSON()).toMatchObject({ contextMode: "none" });
   await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 2");
-  expect(turnCount).toBe(2);
+  await quickAsk.getByLabel("Context mode").selectOption("manual");
+  await quickAsk.getByLabel("echo SELECT_ME", { exact: true }).check();
+  await expect(quickAsk.getByRole("button", { name: "Context ×1" })).toBeVisible();
+  const manualTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
+  await quickAsk.locator("textarea").fill("Only the selected block");
+  await quickAsk.locator("textarea").press("Enter");
+  expect((await manualTurn).postDataJSON()).toMatchObject({ contextMode: "manual", commandIds: [selectedCommandId] });
+  await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 3");
+  await quickAsk.getByLabel("Context mode").selectOption("auto");
+  await expect(quickAsk.getByRole("button", { name: "Context ×3" })).toBeVisible();
+  await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
+  await page.screenshot({ path: resolve(screenshotDirectory, "quick-ask-context-selection.png") });
+  expect(turnCount).toBe(3);
 });
 
 test.afterEach(async ({ page }) => {
@@ -351,7 +379,8 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   expect(cursorBoxBeforeQuickAsk).not.toBeNull();
   expect(quickAskBox).not.toBeNull();
   expect(Math.abs(terminalBoxWithQuickAsk!.height - terminalBoxBeforeQuickAsk!.height)).toBeLessThan(2);
-  expect(quickAskBox!.height).toBeLessThanOrEqual(44);
+  expect(quickAskBox!.height).toBeLessThanOrEqual(110);
+  await expect(inlineAssistant.locator(".ask-context-heading")).toContainText("ChatGPT");
   expect(quickAskBox!.width).toBeLessThanOrEqual(430);
   const distanceToCursor = Math.min(
     Math.abs(quickAskBox!.y - (cursorBoxBeforeQuickAsk!.y + cursorBoxBeforeQuickAsk!.height)),
@@ -362,7 +391,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   const contextIndicator = inlineAssistant.locator(".inline-context-indicator");
   await expect(contextIndicator).toBeVisible();
   await expect(contextIndicator).toHaveAttribute("type", "button");
-  await expect(contextIndicator).toHaveAttribute("title", /Local Windows.*powershell.*outputs/i);
+  await expect(contextIndicator).toHaveAttribute("title", /Local Windows.*powershell/i);
   await expect(inlineAssistant.getByRole("button", { name: "History & details" })).toHaveCount(0);
   await expect(inlineAssistant.getByRole("button", { name: "Close Quick Ask" })).toHaveCount(0);
   const quickAskInput = inlineAssistant.locator("textarea");

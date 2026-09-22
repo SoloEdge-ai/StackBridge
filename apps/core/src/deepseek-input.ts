@@ -8,9 +8,7 @@ export function formatDeepSeekInput(input: Parameters<AgentEngine["runTurn"]>[0]
     "<conversation_history>",
     boundedHistoryJson(input.history, maximumBlockBytes),
     "</conversation_history>",
-    "<terminal_context>",
-    boundedTerminalContextJson(input.context, maximumBlockBytes),
-    "</terminal_context>",
+    ...(input.context === null ? [] : ["<terminal_context>", boundedTerminalContextJson(input.context, maximumBlockBytes), "</terminal_context>"]),
     "User question:",
     input.message,
   ].join("\n");

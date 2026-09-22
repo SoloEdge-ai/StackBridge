@@ -56,7 +56,7 @@ export interface AgentEngine {
     model: string;
     message: string;
     history: ConversationMessage[];
-    context: AgentEngineContext;
+    context: AgentEngineContext | null;
   }): Promise<{ answer: string; proposals: AssistantCommandProposal[] }>;
   stopTurn?(input: { conversationId: string; providerSessionId?: string }): Promise<void>;
 }
@@ -176,7 +176,7 @@ export class ConversationService {
       });
       this.lastEnvironmentByConversation.set(id, environmentSignature);
     }
-    const history = conversation.snapshot.messages.map((message) => clone(message));
+    const history = conversation.snapshot.messages.filter((message) => message.role !== "timeline").map((message) => clone(message));
     const userMessage: ConversationMessage = {
       schemaVersion: 2,
       id: randomUUID(),
@@ -200,7 +200,7 @@ export class ConversationService {
       model: conversation.snapshot.model,
       message: input.message,
       history,
-      context: buildAssistantContext(frozen, terminal.commands(), input.commandIds),
+      context: input.contextMode === "none" ? null : buildAssistantContext(frozen, terminal.commands(), input.commandIds, input.contextMode),
     });
     const proposalIds: string[] = [];
     for (const candidate of result.proposals.slice(0, 8)) {
@@ -416,22 +416,23 @@ export class ConversationService {
   }
 }
 
-function buildAssistantContext(
+export function buildAssistantContext(
   context: TerminalContext,
   allCommands: ReturnType<import("./terminal-session.js").TerminalSession["commands"]>,
   requestedCommandIds: string[] | undefined,
+  mode?: "auto" | "manual" | "none",
 ): AgentEngineContext {
-  const requested = new Set(requestedCommandIds ?? []);
+  const requested = new Set(mode === "auto" || mode === "none" ? [] : requestedCommandIds ?? []);
   const recent = allCommands.slice(-20);
   const selected = [
-    ...recent,
+    ...(mode === "manual" ? [] : recent),
     ...allCommands.filter((command) => requested.has(command.id)),
   ].filter((command, index, commands) =>
     commands.findIndex((candidate) => candidate.id === command.id) === index,
   );
   let remaining = maximumContextBytes;
   let contextTruncated = false;
-  const includeOutput = new Set(recent.slice(-3).map((command) => command.id));
+  const includeOutput = new Set((mode === "manual" ? [] : recent.slice(-3)).map((command) => command.id));
   const mapped = selected.map((command) => {
     let output: string | undefined;
     if (includeOutput.has(command.id) || requested.has(command.id)) {

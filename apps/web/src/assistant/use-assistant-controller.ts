@@ -9,6 +9,7 @@ import {
   type CommandProposal,
   type ConversationSnapshot,
   type DeepSeekProviderInput,
+  type ContextSelection,
 } from "@stackbridge/protocol";
 import { api, errorMessage } from "../api/client.js";
 import { useLanguage } from "../i18n.js";
@@ -29,6 +30,8 @@ export interface AssistantController {
   conversation: ConversationSnapshot | undefined;
   conversations: ConversationSnapshot[];
   message: string;
+  contextSelection: ContextSelection;
+  setContextSelection(value: ContextSelection): void;
   pendingMessage: string | undefined;
   pendingTerminalId: string | undefined;
   inlineAssistantMessage: ConversationMessage | undefined;
@@ -79,6 +82,8 @@ export function useAssistantController(terminalId: string): AssistantController 
   const [conversation, setConversation] = useState<ConversationSnapshot>();
   const [conversations, setConversations] = useState<ConversationSnapshot[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [contextSelections, setContextSelections] = useState<Record<string, ContextSelection>>({});
+  const contextSelection = contextSelections[terminalId] ?? { contextMode: "auto" };
   const [pendingMessage, setPendingMessage] = useState<string>();
   const [pendingTerminalId, setPendingTerminalId] = useState<string>();
   const [inlineMessageIds, setInlineMessageIds] = useState<Record<string, string>>({});
@@ -229,7 +234,7 @@ export function useAssistantController(terminalId: string): AssistantController 
       const updated = await api<ConversationSnapshot>(`/v1/conversations/${current.id}/turns`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, message: prompt.trim(), ...(commandIds ? { commandIds } : {}) }),
+        body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, message: prompt.trim(), ...(commandIds ? { contextMode: "manual", commandIds } : contextSelections[targetTerminalId] ?? { contextMode: "auto" }) }),
       }, t);
       const parsed = conversationSnapshotSchema.parse(updated);
       if (turnRequestVersion.current === requestVersion) {
@@ -295,6 +300,11 @@ export function useAssistantController(terminalId: string): AssistantController 
     conversation,
     conversations,
     message,
+    contextSelection,
+    setContextSelection(value) {
+      if (sending) return;
+      setContextSelections((current) => ({ ...current, [terminalId]: value }));
+    },
     pendingMessage,
     pendingTerminalId,
     inlineAssistantMessage,

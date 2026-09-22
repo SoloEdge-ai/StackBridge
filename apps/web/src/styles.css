@@ -456,3 +456,18 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
   .environment-meta { display: none; }
   .field-grid.three { grid-template-columns: 1fr; }
 }
+/* Per-message terminal context controls shared by both AI composers. */
+.ask-context-tools { padding: 6px 8px; min-width: 0; font-size: 12px; }
+.ask-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ask-context-heading > span { overflow-wrap: anywhere; color: #b8baf7; }
+.ask-context-summary { display: block; color: #999eae; margin-top: 3px; }
+.ask-context-popover { margin-top: 8px; padding: 10px; border: 1px solid #343747; border-radius: 8px; background: #13151d; max-height: 260px; overflow: auto; }
+.ask-context-popover > label { display: grid; gap: 6px; }
+.ask-context-popover select { width: 100%; }
+.ask-context-popover p { color: #aaaebe; line-height: 1.5; }
+.ask-context-command { padding: 8px 0; border-top: 1px solid #303240; }
+.ask-context-command label { display: flex; align-items: start; gap: 8px; }
+.ask-context-command input { width: auto; flex-shrink: 0; }
+.ask-context-command code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ask-context-command small { display: block; color: #aaaebe; overflow-wrap: anywhere; }
+.ask-context-command pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }

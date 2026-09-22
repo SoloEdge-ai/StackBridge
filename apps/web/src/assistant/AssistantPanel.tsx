@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ContextPicker } from "./ContextPicker.js";
 import {
   type AiProviderId,
   type CommandProposal,
@@ -136,14 +137,14 @@ export function AssistantPanel({
           </select>
         ) : null}
       </div>
+      <ContextPicker assistant={assistant} context={context} />
       <div className="context-chip-row">
         <span className={`context-chip ${context?.environment.verified === false ? "warning" : ""}`}>{context ? localizedEnvironmentLabel(context.environment.label, context.environment.kind, locale) : t("识别环境中")}</span>
-        <span className="context-chip">{locale === "zh-CN" ? `附带最近 ${Math.min(3, context?.recentCommandIds.length ?? 0)} 条输出` : `Includes ${Math.min(3, context?.recentCommandIds.length ?? 0)} recent outputs`}</span>
         <details className="context-preview"><summary>{t("检查上下文")}</summary><pre>{JSON.stringify({
           environment: context?.environment,
           cwd: context?.cwd,
           shell: context?.shell,
-          commandIds: context?.recentCommandIds.slice(-3),
+          selection: assistant.contextSelection,
         }, null, 2)}</pre></details>
       </div>
       <div className="message-list" ref={scrollRef}>

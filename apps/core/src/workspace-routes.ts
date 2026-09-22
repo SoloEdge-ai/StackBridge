@@ -5,6 +5,7 @@ import {
   approvalDecisionRequestSchema,
   createConversationRequestSchema,
   createTurnRequestSchema,
+  contextSelectionSchema,
   deepSeekProviderInputSchema,
 } from "@stackbridge/protocol";
 
@@ -20,6 +21,7 @@ import {
   AgentEngineUnavailableError,
   ConversationNotFoundError,
   ConversationService,
+  buildAssistantContext,
   ConversationTerminalNotFoundError,
   ProposalExpiredError,
   ProposalNotFoundError,
@@ -56,6 +58,23 @@ export async function handleWorkspaceRequest(
   terminalWebSockets: TerminalWebSocketHub,
   remoteSessionByTerminal: Map<string, string>,
 ): Promise<boolean> {
+  const previewMatch = /^\/v1\/terminal-sessions\/([0-9a-f-]{36})\/ai-context$/.exec(url.pathname);
+  if (request.method === "POST" && previewMatch?.[1]) {
+    const terminal = options.terminalSessions.get(previewMatch[1]);
+    const parsed = contextSelectionSchema.safeParse(await readJsonBody(request));
+    if (!terminal) writeJson(response, 404, { error: "terminal_session_not_found" });
+    else if (!parsed.success) writeJson(response, 400, { error: "invalid_context_selection" });
+    else {
+      const selection = parsed.data;
+      const context = selection.contextMode === "none" ? null : buildAssistantContext(terminal.context(), terminal.commands(), selection.commandIds, selection.contextMode);
+      writeJson(response, 200, {
+        bytes: context === null ? 0 : Buffer.byteLength(JSON.stringify(context), "utf8"),
+        outputCount: context?.recentCommands.filter((command) => command.output !== undefined).length ?? 0,
+        commands: terminal.commands().slice(-20).map((command) => ({ id: command.id, command: command.command, cwd: command.cwdBefore, exitCode: command.exitCode, output: command.output.slice(-4000) })),
+      });
+    }
+    return true;
+  }
   const terminalMatch = /^\/v1\/terminal-sessions\/([0-9a-f-]{36})$/.exec(
     url.pathname,
   );
