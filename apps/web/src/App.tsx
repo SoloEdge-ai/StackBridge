@@ -294,6 +294,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
     const tab = tabs[tabIndex];
     if (!tab) return;
     const layout = removePane(tab.layout, paneId);
+    sessionStorage.removeItem(`stackbridge.quickAskFrame.${paneId}`);
     const next = layout
       ? tabs.map((item) => item.id === tabId
         ? {
@@ -330,6 +331,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       return;
     }
     const index = tabs.findIndex((item) => item.id === tabId);
+    for (const paneId of paneIds) sessionStorage.removeItem(`stackbridge.quickAskFrame.${paneId}`);
     const next = tabs.filter((item) => item.id !== tabId);
     persistTabs(next);
     setPaneRuntime((current) => {
@@ -380,7 +382,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   const activePane = activeTab
     ? findPane(activeTab.layout, activeTab.activePaneId) ?? flattenPanes(activeTab.layout)[0]
     : undefined;
-  const assistant = useAssistantController(activePane?.id ?? "");
+  const assistant = useAssistantController(activePane?.id ?? "", activePane ? paneRuntime[activePane.id]?.context : undefined);
   const activeRuntime = activePane
     ? paneRuntime[activePane.id] ?? connectingRuntime(t("正在附着终端"))
     : connectingRuntime(t("正在创建终端"));

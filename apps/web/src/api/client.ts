@@ -15,6 +15,10 @@ export async function api<T>(url: string, init: RequestInit | undefined, t: Tran
 export function apiError(payload: Record<string, unknown>, fallback: string, t: Translate): string {
   if (typeof payload.error !== "string") return fallback;
   const messages: Record<string, MessageKey> = {
+    context_preparation_expired: "上下文预览已过期，请检查刷新后的范围并重新发送。",
+    context_preparation_mismatch: "上下文不属于当前对话或终端，请重新选择。",
+    conversation_turn_in_progress: "当前对话仍在处理中，请稍后再发送。",
+    conversation_turn_cancelled: "本次请求已停止，附件未标记为发送成功。",
     terminal_session_limit_reached: "终端数量已达上限，请先关闭不用的标签。",
     remote_session_limit_reached: "远端连接数量已达上限，请先关闭不用的标签。",
     remote_terminals_unavailable: "远端终端服务当前不可用。",

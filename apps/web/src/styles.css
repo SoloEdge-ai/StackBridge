@@ -207,7 +207,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .terminal-pane-context .environment-meta { min-width: 0; max-width: 42%; display: flex; align-items: center; gap: 7px; color: #60606d; font-size: 8px; white-space: nowrap; }
 .terminal-pane-context .environment-meta code { min-width: 0; overflow: hidden; color: #747482; text-overflow: ellipsis; }
 .terminal-pane-context .environment-meta span { color: #5b638e; text-transform: uppercase; }
-.terminal-host { flex: 1 1 0; min-width: 0; min-height: 0; padding: 10px 9px 6px 16px; overflow: hidden; }
+.terminal-host { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; padding: 10px 9px 6px 16px; overflow: hidden; }
 .terminal-host .xterm { height: 100%; }
 .terminal-pane-close {
   position: relative;
@@ -471,3 +471,15 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .ask-context-command code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .ask-context-command small { display: block; color: #aaaebe; overflow-wrap: anywhere; }
 .ask-context-command pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.terminal-context-overlay { position: absolute; inset: 10px 9px 6px 16px; pointer-events: none; z-index: 2; overflow: hidden; }
+.terminal-context-highlight { position: absolute; left: 0; right: 0; border-left: 3px solid #5de4c7; pointer-events: none; }
+.context-row-paint { position: absolute; background: #5de4c71c; pointer-events: none; }
+.context-range-handle { position: absolute; left: -3px; width: 14px; height: 10px; padding: 0; background: #5de4c7; border: 1px solid #102e29; border-radius: 3px; cursor: ns-resize; pointer-events: auto; touch-action: none; }
+.context-range-handle.start { top: 0; }
+.context-range-handle.end { bottom: 0; }
+.context-range-unavailable { position: absolute; right: 4px; top: 0; background: #17171de6; color: #efc56d; padding: 4px; font-size: 11px; max-width: 70%; }
+.quick-ask-drag-bar { display: flex; justify-content: space-between; padding: 3px 8px; cursor: move; touch-action: none; user-select: none; color: #90909c; font-size: 11px; }
+.quick-ask-drag-bar button { font-size: 11px; padding: 1px 4px; }
+.quick-ask-resize { position: absolute; bottom: 1px; right: 1px; width: 15px; height: 15px; border: 0; padding: 0; border-right: 2px solid #91a1ff; border-bottom: 2px solid #91a1ff; background: transparent; cursor: nwse-resize; touch-action: none; z-index: 4; }
+.message-attachments pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-attachments { font-size: 11px; color: #aaaebe; }

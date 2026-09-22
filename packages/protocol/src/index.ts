@@ -57,6 +57,7 @@ export type ReusableTerminalSessionRequest = z.infer<
 >;
 
 export const terminalSessionSnapshotSchema = z.object({
+  replayStart: z.number().int().nonnegative().optional(),
   id: z.uuid(),
   state: z.enum(["running", "exited"]),
   cols: terminalDimensionSchema,
@@ -120,6 +121,7 @@ export type ClientTerminalMessage = z.infer<typeof clientTerminalMessageSchema>;
 export const serverTerminalMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("ready"),
+    replayStart: z.number().int().nonnegative().optional(),
     sessionId: z.uuid(),
     state: z.enum(["running", "exited"]),
     cols: terminalDimensionSchema,
@@ -129,6 +131,8 @@ export const serverTerminalMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("output"),
+    start: z.number().int().nonnegative().optional(),
+    end: z.number().int().nonnegative().optional(),
     data: z.string(),
   }),
   z.object({
@@ -225,6 +229,7 @@ export const remoteExecutionResultSchema = z.object({
 export type RemoteExecutionResult = z.infer<typeof remoteExecutionResultSchema>;
 
 export const createConversationRequestSchema = z.object({
+  preparedContextId: z.uuid().optional(),
   schemaVersion: schemaVersion2,
   terminalSessionId: z.uuid(),
   providerId: z.enum(["chatgpt", "deepseek"]).optional(),
@@ -236,6 +241,7 @@ export type CreateConversationRequest = z.infer<
 >;
 
 export const createTurnRequestSchema = z.object({
+  preparedContextId: z.uuid().optional(),
   schemaVersion: schemaVersion2,
   terminalSessionId: z.uuid(),
   message: z.string().trim().min(1).max(32_768),
@@ -245,12 +251,30 @@ export const createTurnRequestSchema = z.object({
 
 export type CreateTurnRequest = z.infer<typeof createTurnRequestSchema>;
 
-export const contextSelectionSchema = createTurnRequestSchema.pick({ contextMode: true, commandIds: true });
+export const contextSelectionSchema = createTurnRequestSchema.pick({ contextMode: true, commandIds: true }).extend({ conversationId: z.uuid().optional(), prepare: z.boolean().optional() });
 export type ContextSelection = z.infer<typeof contextSelectionSchema>;
+export const terminalAttachmentSchema = z.object({
+  commandId: z.uuid(), terminalSessionId: z.uuid(), environmentLabel: z.string(), cwd: z.string(),
+  command: z.string(), output: z.string(), start: z.number().int().nonnegative(), end: z.number().int().nonnegative(),
+  commandStart: z.number().int().nonnegative(), outputStart: z.number().int().nonnegative(),
+  repeated: z.boolean(), truncated: z.boolean(), gap: z.boolean(),
+  includeCommand: z.boolean().default(false),
+});
+export type TerminalAttachment = z.infer<typeof terminalAttachmentSchema>;
+export const contextSnapshotSchema = z.object({
+  mode: z.enum(["auto", "manual", "none"]), status: z.enum(["pending", "succeeded", "failed", "cancelled", "unknown"]),
+  contextJson: z.string().nullable(), attachments: z.array(terminalAttachmentSchema),
+  truncated: z.boolean(),
+});
+export type ContextSnapshot = z.infer<typeof contextSnapshotSchema>;
 export interface AssistantContextPreview {
+  preparedId?: string;
+  expiresAt?: string;
+  attachments?: TerminalAttachment[];
+  truncated?: boolean;
   bytes: number;
   outputCount: number;
-  commands: Array<{ id: string; command: string; cwd: string; exitCode?: number; output: string }>;
+  commands: Array<{ id: string; command: string; cwd: string; exitCode?: number; output: string; commandStart?: number; outputStart?: number; outputEnd?: number }>;
 }
 
 export const approvalDecisionRequestSchema = z.object({
@@ -343,6 +367,7 @@ export const commandProposalSchema = z.object({
 export type CommandProposal = z.infer<typeof commandProposalSchema>;
 
 export const conversationMessageSchema = z.object({
+  contextSnapshot: contextSnapshotSchema.optional(),
   schemaVersion: schemaVersion2,
   id: z.uuid(),
   role: z.enum(["user", "assistant", "timeline"]),

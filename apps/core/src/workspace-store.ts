@@ -16,7 +16,7 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof
 
 import type { ApprovedCommandRequest, CommandBlock } from "./terminal-session.js";
 
-const schemaVersion = 3;
+const schemaVersion = 4;
 const defaultRetentionMs = 7 * 24 * 60 * 60_000;
 const defaultOutputLimitBytes = 1024 * 1024 * 1024;
 
@@ -363,6 +363,10 @@ export class WorkspaceStore implements ConversationPersistence {
           VALUES (3, datetime('now'));
         COMMIT;
       `);
+    }
+    if (current.version < 4) {
+      // Message attachment snapshots and delivery state live inside snapshot_json.
+      this.database.exec("INSERT INTO schema_migrations (version, applied_at) VALUES (4, datetime('now'))");
     }
   }
 

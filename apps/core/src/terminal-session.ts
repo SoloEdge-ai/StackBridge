@@ -55,6 +55,8 @@ export interface TerminalSessionAttachment {
 export type ShellState = TerminalContext["shellState"];
 
 export interface CommandBlock {
+  environmentLabel?: string;
+  commandStartSequence?: number;
   id: string;
   terminalSessionId: string;
   environmentFrameId: string;
@@ -141,6 +143,8 @@ type ShellIntegrationEvent =
   | { type: "environmentPop" };
 
 interface ActiveCommand {
+  environmentLabel: string;
+  commandStartSequence: number;
   id: string;
   environment: TerminalEnvironment;
   source: "manual" | "ai";
@@ -160,6 +164,7 @@ export class TerminalSession {
 
   private state: "running" | "exited" = "running";
   private replay = "";
+  private lastPromptSequence = 0;
   private exitCode: number | undefined;
   private signal: number | undefined;
   private readonly listeners = new Set<TerminalSessionListener>();
@@ -266,6 +271,8 @@ export class TerminalSession {
             startedAt: this.activeCommand.startedAt,
             endedAt: new Date().toISOString(),
             outputStartSequence: this.activeCommand.outputStartSequence,
+            commandStartSequence: this.activeCommand.commandStartSequence,
+            environmentLabel: this.activeCommand.environmentLabel,
             outputEndSequence: this.outputSequence,
             output: this.activeCommand.output,
             outputTruncated: this.activeCommand.outputTruncated,
@@ -344,6 +351,7 @@ export class TerminalSession {
       cols: this.cols,
       rows: this.rows,
       replay: this.replay,
+      replayStart: this.outputSequence - Buffer.byteLength(this.replay, "utf8"),
       ...(this.exitCode === undefined ? {} : { exitCode: this.exitCode }),
       ...(this.signal === undefined ? {} : { signal: this.signal }),
     };
@@ -408,12 +416,13 @@ export class TerminalSession {
       this.activeCommand.outputTruncated ||= trimmed !== next;
       this.activeCommand.output = trimmed;
     }
-    this.publish({ type: "output", data });
+    this.publish({ type: "output", data, start: this.outputSequence - Buffer.byteLength(data, "utf8"), end: this.outputSequence });
   }
 
   private receiveShellEvent(event: ShellIntegrationEvent): void {
     this.contextVersion += 1;
     if (event.type === "prompt") {
+      this.lastPromptSequence = this.outputSequence;
       this.cwd = event.cwd;
       this.shell = event.shell;
       this.user = event.user;
@@ -447,6 +456,8 @@ export class TerminalSession {
         this.updateOperation(approved.operationId, { status: "running" });
       }
       this.activeCommand = {
+        environmentLabel: this.environments.map((item) => item.label).join(" → "),
+        commandStartSequence: this.lastPromptSequence,
         id: randomUUID(),
         environment: { ...this.environments.at(-1)! },
         source: approved === undefined ? event.source ?? "manual" : "ai",
@@ -514,6 +525,8 @@ export class TerminalSession {
       endedAt: new Date().toISOString(),
       ...(exitCode === undefined ? {} : { exitCode }),
       outputStartSequence: active.outputStartSequence,
+      commandStartSequence: active.commandStartSequence,
+      environmentLabel: active.environmentLabel,
       outputEndSequence: this.outputSequence,
       output: active.output,
       outputTruncated: active.outputTruncated,

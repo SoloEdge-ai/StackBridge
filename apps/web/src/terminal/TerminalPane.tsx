@@ -1,4 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { AssistantContextPreview, TerminalAttachment } from "@stackbridge/protocol";
+import { TerminalRanges } from "./terminal-ranges.js";
+import { TerminalContextOverlay } from "./TerminalContextOverlay.js";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { terminalContextSchema } from "@stackbridge/protocol";
@@ -35,6 +38,7 @@ export function TerminalPane({
   onCursorAnchor,
   onUnavailable,
   quickAskShortcut,
+  attachments = [], contextCommands = [], manualContext = false, contextDisabled = false, onContextSelect = () => {},
 }: {
   sessionId: string;
   active: boolean;
@@ -43,10 +47,17 @@ export function TerminalPane({
   onCursorAnchor(sessionId: string, anchor: TerminalCursorAnchor | undefined): void;
   onUnavailable(): void;
   quickAskShortcut: string;
+  attachments?: TerminalAttachment[];
+  contextCommands?: AssistantContextPreview["commands"];
+  manualContext?: boolean;
+  contextDisabled?: boolean;
+  onContextSelect?(ids: string[]): void;
 }) {
   const { t } = useLanguage();
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | undefined>(undefined);
+  const rangesRef = useRef<TerminalRanges | undefined>(undefined);
+  const [rangeRevision, setRangeRevision] = useState(0);
   const activeRef = useRef(active);
   const onContextRef = useRef(onContext);
   const onStateRef = useRef(onState);
@@ -112,6 +123,8 @@ export function TerminalPane({
     });
     terminal.open(host);
     terminalRef.current = terminal;
+    const ranges = new TerminalRanges(terminal, () => setRangeRevision((value) => value + 1));
+    rangesRef.current = ranges;
     onCursorAnchorRef.current(sessionId, createXtermCursorAnchor(host));
     fit.fit();
     if (activeRef.current) terminal.focus();
@@ -156,9 +169,9 @@ export function TerminalPane({
         if (decoded.replay) {
           replaying = true;
           canWrite = false;
-          terminal.write(decoded.replay, finishReplay);
+          ranges.write(decoded.replay, decoded.replayStart ?? 0, finishReplay);
         } else finishReplay();
-      } else if (decoded.type === "output") terminal.write(decoded.data);
+      } else if (decoded.type === "output") ranges.write(decoded.data, decoded.start ?? 0);
       else if (decoded.type === "writable") {
         canWrite = decoded.writable;
         onStateRef.current(sessionId, "running", canWrite, canWrite ? tRef.current("当前页面持有写入租约") : tRef.current("另一页面持有写入租约"));
@@ -197,10 +210,15 @@ export function TerminalPane({
       resizeObserver.disconnect();
       dataSubscription.dispose();
       socket?.close();
+      ranges.dispose();
+      rangesRef.current = undefined;
       terminal.dispose();
       terminalRef.current = undefined;
       onCursorAnchorRef.current(sessionId, undefined);
     };
   }, [sessionId]);
-  return <div className="terminal-host" ref={hostRef} />;
+  return <div className="terminal-host" ref={hostRef}>
+    <TerminalContextOverlay terminal={terminalRef.current} ranges={rangesRef.current} revision={rangeRevision} attachments={attachments}
+      commands={contextCommands} manual={manualContext} disabled={contextDisabled} onSelect={onContextSelect} />
+  </div>;
 }

@@ -30,6 +30,8 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 
 ## 实机状态
 
+- 本轮 `codex/terminal-context-management`：冻结附件准备、按对话/终端/输出范围增量去重、历史附件持久化、命令块高亮和拖动扩展、Quick Ask 固定位置与缩放。详见 `docs/design/TERMINAL_CONTEXT_MANAGEMENT.md`；新 PR 仅供用户验收，不自动合并。
+
 - Quick Ask 追加 Provider/model、每条消息 auto/manual/none 上下文选择和本地 KiB 估算；完整 AI 面板共用选择。详见 `docs/design/QUICK_ASK_CONTEXT_SELECTION.md`。PR #3 保持打开，等待用户 EXE 验收，不得自动合并。
 
 - Windows 本地 PowerShell：真实输入、Unicode、emoji、resize、Ctrl+C、同 Shell 状态、刷新重附着已验证。

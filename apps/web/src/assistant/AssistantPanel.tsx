@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ContextPicker } from "./ContextPicker.js";
+import { MessageAttachments } from "./MessageAttachments.js";
 import {
   type AiProviderId,
   type CommandProposal,
@@ -163,6 +164,7 @@ export function AssistantPanel({
           <div key={item.id} className={`message ${item.role}`}>
             <div className="message-role">{item.role === "user" ? t("你") : item.role === "assistant" ? "AI" : t("环境")}</div>
             <div className="message-body">{item.role === "timeline" ? localizedSystemMessage(item.content, locale) : item.content}</div>
+            <MessageAttachments message={item} assistant={assistant} />
             {item.proposalIds?.map((id) => {
               const proposal = conversation.proposals.find((candidate) => candidate.id === id);
               return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={(item, decision) => void assistant.decide(item, decision)} onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
