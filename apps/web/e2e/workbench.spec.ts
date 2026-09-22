@@ -161,7 +161,7 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
           schemaVersion: 2,
           id: `00000000-0000-4000-8000-0000000002${turnCount}2`,
           role: "assistant",
-          content: `DeepSeek routed answer ${turnCount}`,
+          content: `DeepSeek routed answer ${turnCount}\n\n**CPU** and \`uname -a\`\n\n- Linux host\n\n\`\`\`sh\nprintf 'hello'\n\`\`\`\n\n| Item | Value |\n| --- | --- |\n| CPU | AMD |\n\n<script>window.markdownExecuted = true</script>\n\n[unsafe](javascript:alert(1))\n\n![remote](https://example.invalid/tracker.png)`,
           createdAt: timestamp,
           proposalIds: [],
         },
@@ -189,6 +189,12 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await composer.fill("Route this through DeepSeek");
   await composer.press("Enter");
   await expect(page.getByText("DeepSeek routed answer 1")).toBeVisible();
+  const fullReply = page.locator(".message.assistant .message-body").last();
+  await expect(fullReply.locator("strong")).toHaveText("CPU");
+  await expect(fullReply.locator("li")).toHaveText("Linux host");
+  await expect(fullReply.locator("pre code")).toHaveText("printf 'hello'\n");
+  await expect(fullReply.locator("table")).toContainText("AMD");
+  await expect(fullReply.locator("script, img, a[href^='javascript:']")).toHaveCount(0);
   await expect(providerGroup.getByRole("button", { name: /ChatGPT/ })).toBeDisabled();
   await page.getByRole("button", { name: /New conversation/ }).click();
   await providerGroup.getByRole("button", { name: /ChatGPT/ }).click();
@@ -211,6 +217,10 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await quickAsk.locator("textarea").press("Enter");
   expect((await nextTurn).postDataJSON()).toMatchObject({ preparedContextId: "00000000-0000-4000-8000-000000000911" });
   await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 2");
+  await expect(quickAsk.locator(".message-body strong")).toHaveText("CPU");
+  await expect(quickAsk.locator(".message-body pre code")).toHaveText("printf 'hello'\n");
+  await expect(quickAsk.locator(".message-body table")).toContainText("AMD");
+  await expect(quickAsk.locator(".message-body script, .message-body img, .message-body a[href^='javascript:']")).toHaveCount(0);
   await quickAsk.getByLabel("Context mode").selectOption("manual");
   await quickAsk.getByLabel("echo SELECT_ME", { exact: true }).check();
   await expect(quickAsk.getByRole("button", { name: "Context ×1" })).toBeVisible();

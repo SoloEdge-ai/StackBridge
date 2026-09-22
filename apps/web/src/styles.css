@@ -361,6 +361,20 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .message.user .message-role { text-align: right; }
 .message-body { color: #d2d2da; line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .message.user .message-body { padding: 9px 11px; border: 1px solid #35384d; border-radius: 11px 11px 2px 11px; background: #1e2030; }
+.message-body.assistant-markdown { white-space: normal; min-width: 0; }
+.assistant-markdown > :first-child { margin-top: 0; }
+.assistant-markdown > :last-child { margin-bottom: 0; }
+.assistant-markdown p, .assistant-markdown ul, .assistant-markdown ol { margin: .55em 0; }
+.assistant-markdown ul, .assistant-markdown ol { padding-left: 1.7em; }
+.assistant-markdown li + li { margin-top: .25em; }
+.assistant-markdown h1, .assistant-markdown h2, .assistant-markdown h3 { font-size: 1.15em; margin: .8em 0 .4em; }
+.assistant-markdown code { font-family: Consolas, monospace; background: #ffffff0c; border-radius: 3px; padding: .1em .3em; }
+.assistant-markdown pre { max-width: 100%; overflow-x: auto; white-space: pre; padding: 10px; background: #080a10; border: 1px solid #303343; border-radius: 6px; }
+.assistant-markdown pre code { background: none; padding: 0; }
+.assistant-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: .7em 0; }
+.assistant-markdown th, .assistant-markdown td { border: 1px solid #35384d; padding: 5px 8px; text-align: left; }
+.assistant-markdown blockquote { margin: .7em 0; border-left: 3px solid #666b86; padding-left: 10px; color: #aeb4c8; }
+.assistant-markdown a { color: #96caff; text-decoration: underline; }
 .message.pending { opacity: .7; }
 .thinking { display: flex; align-items: center; gap: 5px; color: #7d7d88; font-size: 10px; }
 .thinking span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }

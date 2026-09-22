@@ -4,6 +4,7 @@ import { localizedEnvironmentLabel, useLanguage } from "../i18n.js";
 import type { TerminalContext, TerminalCursorAnchor } from "../terminal/types.js";
 import { ProposalCard } from "./AssistantPanel.js";
 import { ContextPicker } from "./ContextPicker.js";
+import { AssistantMarkdown } from "./AssistantMarkdown.js";
 import { useFloatingAssistant } from "./use-floating-assistant.js";
 import type { AssistantController } from "./use-assistant-controller.js";
 
@@ -197,7 +198,7 @@ export function InlineAssistant({
             <span>AI</span>
             <button type="button" className="inline-history-button" aria-label={t("历史与详情")} title={t("历史与详情")} onClick={onOpenHistory}>↗</button>
           </div>
-          <div className="message-body">{latestAssistantMessage.content}</div>
+          <AssistantMarkdown content={latestAssistantMessage.content} />
           {proposals.map((proposal) => (
             <ProposalCard
               key={proposal.id}
