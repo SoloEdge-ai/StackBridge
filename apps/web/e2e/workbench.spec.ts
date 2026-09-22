@@ -372,6 +372,13 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(inlineAssistant).toBeVisible();
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
+  await expect.poll(async () => {
+    const box = await inlineAssistant.boundingBox();
+    return box === null ? Infinity : Math.min(
+      Math.abs(box.y - (cursorBoxBeforeQuickAsk.y + cursorBoxBeforeQuickAsk.height)),
+      Math.abs(box.y + box.height - cursorBoxBeforeQuickAsk.y),
+    );
+  }).toBeLessThan(20);
   const terminalBoxWithQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
   const quickAskBox = await inlineAssistant.boundingBox();
   expect(terminalBoxBeforeQuickAsk).not.toBeNull();
