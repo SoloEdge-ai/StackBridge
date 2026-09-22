@@ -1,17 +1,27 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import {
+  aiProviderIdSchema,
   approvalDecisionRequestSchema,
   createConversationRequestSchema,
   createTurnRequestSchema,
+  contextSelectionSchema,
+  deepSeekProviderInputSchema,
 } from "@stackbridge/protocol";
 
 import { BrowserSessionStore } from "./browser-session-store.js";
 import { authenticatedBrowserSession } from "./browser-auth.js";
-import type { CodexAppServer } from "./codex-app-server.js";
 import {
+  AiProviderUnavailableError,
+  DeepSeekApiKeyRequiredError,
+  DeepSeekRequestError,
+  type AiProviderService,
+} from "./ai-provider-service.js";
+import {
+  AgentEngineUnavailableError,
   ConversationNotFoundError,
   ConversationService,
+  buildAssistantContext,
   ConversationTerminalNotFoundError,
   ProposalExpiredError,
   ProposalNotFoundError,
@@ -26,8 +36,16 @@ export interface WorkspaceRouteOptions {
   remoteSessions?: Pick<RemoteSessionService, "close">;
   conversations?: ConversationService;
   ai?: Pick<
-    CodexAppServer,
-    "accountStatus" | "startLogin" | "cancelLogin" | "logout" | "models"
+    AiProviderService,
+    | "accountStatus"
+    | "startLogin"
+    | "cancelLogin"
+    | "logout"
+    | "models"
+    | "providers"
+    | "configureDeepSeek"
+    | "testDeepSeek"
+    | "clearDeepSeek"
   >;
 }
 
@@ -40,6 +58,23 @@ export async function handleWorkspaceRequest(
   terminalWebSockets: TerminalWebSocketHub,
   remoteSessionByTerminal: Map<string, string>,
 ): Promise<boolean> {
+  const previewMatch = /^\/v1\/terminal-sessions\/([0-9a-f-]{36})\/ai-context$/.exec(url.pathname);
+  if (request.method === "POST" && previewMatch?.[1]) {
+    const terminal = options.terminalSessions.get(previewMatch[1]);
+    const parsed = contextSelectionSchema.safeParse(await readJsonBody(request));
+    if (!terminal) writeJson(response, 404, { error: "terminal_session_not_found" });
+    else if (!parsed.success) writeJson(response, 400, { error: "invalid_context_selection" });
+    else {
+      const selection = parsed.data;
+      const context = selection.contextMode === "none" ? null : buildAssistantContext(terminal.context(), terminal.commands(), selection.commandIds, selection.contextMode);
+      writeJson(response, 200, {
+        bytes: context === null ? 0 : Buffer.byteLength(JSON.stringify(context), "utf8"),
+        outputCount: context?.recentCommands.filter((command) => command.output !== undefined).length ?? 0,
+        commands: terminal.commands().slice(-20).map((command) => ({ id: command.id, command: command.command, cwd: command.cwdBefore, exitCode: command.exitCode, output: command.output.slice(-4000) })),
+      });
+    }
+    return true;
+  }
   const terminalMatch = /^\/v1\/terminal-sessions\/([0-9a-f-]{36})$/.exec(
     url.pathname,
   );
@@ -112,6 +147,8 @@ export async function handleWorkspaceRequest(
       } catch (error) {
         if (error instanceof ConversationTerminalNotFoundError) {
           writeJson(response, 404, { error: "terminal_session_not_found" });
+        } else if (error instanceof AgentEngineUnavailableError) {
+          writeJson(response, 503, { error: "ai_provider_unavailable", providerId: error.providerId });
         } else throw error;
       }
       return true;
@@ -156,6 +193,12 @@ export async function handleWorkspaceRequest(
         writeJson(response, 404, { error: "conversation_not_found" });
       } else if (error instanceof ConversationTerminalNotFoundError) {
         writeJson(response, 404, { error: "terminal_session_not_found" });
+      } else if (error instanceof AgentEngineUnavailableError) {
+        writeJson(response, 503, { error: "ai_provider_unavailable", providerId: error.providerId });
+      } else if (error instanceof DeepSeekApiKeyRequiredError) {
+        writeJson(response, 400, { error: "deepseek_api_key_required" });
+      } else if (error instanceof DeepSeekRequestError) {
+        writeJson(response, error.httpStatus, { error: error.code, message: error.message });
       } else throw error;
     }
     return true;
@@ -246,7 +289,15 @@ export async function handleWorkspaceRequest(
   }
   if (url.pathname === "/v1/ai/account/login" && request.method === "POST") {
     if (options.ai === undefined) writeJson(response, 503, { error: "ai_unavailable" });
-    else writeJson(response, 200, await options.ai.startLogin());
+    else {
+      try {
+        writeJson(response, 200, await options.ai.startLogin());
+      } catch (error) {
+        if (error instanceof AiProviderUnavailableError) {
+          writeJson(response, 503, { error: "ai_unavailable", providerId: error.providerId });
+        } else throw error;
+      }
+    }
     return true;
   }
   if (url.pathname === "/v1/ai/account/login/cancel" && request.method === "POST") {
@@ -276,7 +327,67 @@ export async function handleWorkspaceRequest(
   }
   if (url.pathname === "/v1/ai/models" && request.method === "GET") {
     if (options.ai === undefined) writeJson(response, 503, { error: "ai_unavailable" });
-    else writeJson(response, 200, { data: await options.ai.models() });
+    else {
+      const parsedProvider = aiProviderIdSchema.safeParse(url.searchParams.get("providerId") ?? "chatgpt");
+      if (!parsedProvider.success) writeJson(response, 400, { error: "invalid_request" });
+      else writeJson(response, 200, { data: await options.ai.models(parsedProvider.data) });
+    }
+    return true;
+  }
+  if (url.pathname === "/v1/ai/providers" && request.method === "GET") {
+    if (options.ai === undefined) writeJson(response, 503, { error: "ai_unavailable" });
+    else writeJson(response, 200, { data: await options.ai.providers() });
+    return true;
+  }
+  if (url.pathname === "/v1/ai/providers/deepseek" && request.method === "PUT") {
+    if (options.ai === undefined) writeJson(response, 503, { error: "ai_unavailable" });
+    else {
+      const parsed = deepSeekProviderInputSchema.safeParse(await readJsonBody(request));
+      if (!parsed.success) writeJson(response, 400, { error: "invalid_request" });
+      else {
+        try {
+          writeJson(response, 200, options.ai.configureDeepSeek(parsed.data));
+        } catch (error) {
+          if (error instanceof DeepSeekApiKeyRequiredError) {
+            writeJson(response, 400, { error: "deepseek_api_key_required" });
+          } else if (error instanceof DeepSeekRequestError) {
+            writeJson(response, error.httpStatus, { error: error.code, message: error.message });
+          } else if (error instanceof Error) {
+            writeJson(response, 400, { error: "invalid_deepseek_configuration", message: error.message });
+          } else throw error;
+        }
+      }
+    }
+    return true;
+  }
+  if (url.pathname === "/v1/ai/providers/deepseek" && request.method === "DELETE") {
+    if (options.ai === undefined) writeJson(response, 503, { error: "ai_unavailable" });
+    else {
+      options.ai.clearDeepSeek();
+      response.writeHead(204, { "cache-control": "no-store" });
+      response.end();
+    }
+    return true;
+  }
+  if (url.pathname === "/v1/ai/providers/deepseek/test" && request.method === "POST") {
+    if (options.ai === undefined) writeJson(response, 503, { error: "ai_unavailable" });
+    else {
+      const parsed = deepSeekProviderInputSchema.safeParse(await readJsonBody(request));
+      if (!parsed.success) writeJson(response, 400, { error: "invalid_request" });
+      else {
+        try {
+          writeJson(response, 200, await options.ai.testDeepSeek(parsed.data));
+        } catch (error) {
+          if (error instanceof DeepSeekApiKeyRequiredError) {
+            writeJson(response, 400, { error: "deepseek_api_key_required" });
+          } else if (error instanceof DeepSeekRequestError) {
+            writeJson(response, error.httpStatus, { error: error.code, message: error.message });
+          } else if (error instanceof Error) {
+            writeJson(response, 502, { error: "deepseek_connection_failed", message: error.message });
+          } else throw error;
+        }
+      }
+    }
     return true;
   }
 

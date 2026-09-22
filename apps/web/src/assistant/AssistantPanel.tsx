@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { type CommandProposal, type OperationSnapshot } from "@stackbridge/protocol";
+import { ContextPicker } from "./ContextPicker.js";
+import {
+  type AiProviderId,
+  type CommandProposal,
+  type DeepSeekProviderInput,
+  type OperationSnapshot,
+} from "@stackbridge/protocol";
 import {
   localizedConversationTitle,
   localizedEnvironmentLabel,
@@ -23,17 +29,40 @@ export function AssistantPanel({
 }) {
   const { locale, t } = useLanguage();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { account, models, model, conversation, conversations, message, pendingMessage, sending, error, loginId } = assistant;
+  const [editingDeepSeek, setEditingDeepSeek] = useState(false);
+  const {
+    account,
+    providers,
+    providerId,
+    activeProvider,
+    models,
+    model,
+    conversation,
+    conversations,
+    message,
+    pendingMessage,
+    sending,
+    error,
+    loginId,
+  } = assistant;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [conversation, pendingMessage]);
 
-  if (!account) return <aside className="assistant-panel loading-panel"><PanelHeader title={t("AI 助手")} subtitle={shortcut} onClose={onClose} /><CenteredStatus message={t("正在连接 Codex…")} /></aside>;
-  if (!account.authenticated) {
+  if (!activeProvider || (providerId === "chatgpt" && !account)) {
+    return <aside className="assistant-panel loading-panel"><PanelHeader title={t("AI 助手")} subtitle={shortcut} onClose={onClose} /><CenteredStatus message={t("正在连接 AI 提供方…")} /></aside>;
+  }
+  if (providerId === "chatgpt" && !account?.authenticated) {
     return (
       <aside className="assistant-panel">
         <PanelHeader title="Terminal AI" subtitle={shortcut} onClose={onClose} />
+        <ProviderSwitcher
+          providers={providers}
+          value={providerId}
+          disabled={!!conversation || sending}
+          onChange={assistant.setProvider}
+        />
         <div className="account-empty">
           <div className="ai-hero">
             <div className="ai-orb"><SparkIcon /></div>
@@ -52,38 +81,70 @@ export function AssistantPanel({
             <button className="ghost-button" onClick={() => void assistant.cancelLogin()}>{t("取消本次登录")}</button>
           </> : <button className="primary-button ai-login-button" onClick={() => void assistant.login()}>{t("使用 ChatGPT 登录")} <span>↗</span></button>}
           <p className="privacy-note">{t("登录凭据保存在 StackBridge 独立 Codex 数据目录的认证文件中。")}</p>
-          {account.error ? <p className="form-error">{account.error}</p> : null}
+          {account?.error ? <p className="form-error">{account.error}</p> : null}
           {error ? <p className="form-error">{error}</p> : null}
         </div>
+      </aside>
+    );
+  }
+  if (providerId === "deepseek" && (!activeProvider.configured || editingDeepSeek)) {
+    return (
+      <aside className="assistant-panel">
+        <PanelHeader title="Terminal AI" subtitle={shortcut} onClose={onClose} />
+        <ProviderSwitcher
+          providers={providers}
+          value={providerId}
+          disabled={!!conversation || sending}
+          onChange={assistant.setProvider}
+        />
+        <DeepSeekSetup
+          assistant={assistant}
+          onDone={() => setEditingDeepSeek(false)}
+          {...(activeProvider.configured
+            ? { onCancel: () => setEditingDeepSeek(false) }
+            : {})}
+        />
       </aside>
     );
   }
 
   return (
     <aside className="assistant-panel">
-      <PanelHeader title={t("AI 助手")} subtitle={account.accountLabel ?? shortcut} onClose={onClose} />
+      <PanelHeader title={t("AI 助手")} subtitle={providerId === "chatgpt" ? account?.accountLabel ?? shortcut : "DeepSeek API"} onClose={onClose} />
+      <ProviderSwitcher
+        providers={providers}
+        value={providerId}
+        disabled={!!conversation || sending}
+        onChange={assistant.setProvider}
+      />
       <div className="assistant-tools">
-        <select value={model} onChange={(event) => assistant.setModel(event.target.value)} disabled={!!conversation}>
-          {(models.length ? models : [{ model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" } as CodexModel]).map((item) => (
-            <option key={item.model} value={item.model}>{item.displayName}</option>
-          ))}
-        </select>
+        {providerId === "deepseek" ? (
+          <label className="model-input"><span>{t("模型")}</span><input list="deepseek-models" value={model} onChange={(event) => assistant.setModel(event.target.value)} disabled={!!conversation} /></label>
+        ) : (
+          <select aria-label={t("模型")} value={model} onChange={(event) => assistant.setModel(event.target.value)} disabled={!!conversation}>
+            {(models.length ? models : [{ model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna" } as CodexModel]).map((item) => (
+              <option key={item.model} value={item.model}>{item.displayName}</option>
+            ))}
+          </select>
+        )}
+        <datalist id="deepseek-models">{models.map((item) => <option key={item.model} value={item.model}>{item.displayName}</option>)}</datalist>
         <button className="ghost-button compact" onClick={assistant.newConversation} disabled={sending}>＋ {t("新对话")}</button>
+        {providerId === "deepseek" && !conversation ? <button className="text-button provider-configure" onClick={() => setEditingDeepSeek(true)}>{t("配置 DeepSeek")}</button> : null}
         {conversations.length ? (
           <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)} disabled={sending}>
             <option value="">{t("历史对话")}</option>
-            {conversations.map((item) => <option key={item.id} value={item.id}>{localizedConversationTitle(item.title, locale)}</option>)}
+            {conversations.map((item) => <option key={item.id} value={item.id}>[{item.providerId === "deepseek" ? "DeepSeek" : "ChatGPT"}] {localizedConversationTitle(item.title, locale)}</option>)}
           </select>
         ) : null}
       </div>
+      <ContextPicker assistant={assistant} context={context} />
       <div className="context-chip-row">
         <span className={`context-chip ${context?.environment.verified === false ? "warning" : ""}`}>{context ? localizedEnvironmentLabel(context.environment.label, context.environment.kind, locale) : t("识别环境中")}</span>
-        <span className="context-chip">{locale === "zh-CN" ? `附带最近 ${Math.min(3, context?.recentCommandIds.length ?? 0)} 条输出` : `Includes ${Math.min(3, context?.recentCommandIds.length ?? 0)} recent outputs`}</span>
         <details className="context-preview"><summary>{t("检查上下文")}</summary><pre>{JSON.stringify({
           environment: context?.environment,
           cwd: context?.cwd,
           shell: context?.shell,
-          commandIds: context?.recentCommandIds.slice(-3),
+          selection: assistant.contextSelection,
         }, null, 2)}</pre></details>
       </div>
       <div className="message-list" ref={scrollRef}>
@@ -109,7 +170,7 @@ export function AssistantPanel({
           </div>
         ))}
         {pendingMessage ? <div className="message user pending"><div className="message-role">{t("你")}</div><div className="message-body">{pendingMessage}</div></div> : null}
-        {sending ? <div className="thinking"><span /><span /><span /> {t("Codex 正在分析当前终端…")}</div> : null}
+        {sending ? <div className="thinking"><span /><span /><span /> {t("AI 正在分析当前终端…")}</div> : null}
       </div>
       {error ? <div className="panel-error">{error}</div> : null}
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void assistant.send(); }}>
@@ -132,6 +193,115 @@ export function AssistantPanel({
         </div>
       </form>
     </aside>
+  );
+}
+
+function ProviderSwitcher({ providers, value, disabled, onChange }: {
+  providers: Array<{ id: AiProviderId; label: string; available: boolean; configured: boolean }>;
+  value: AiProviderId;
+  disabled: boolean;
+  onChange(value: AiProviderId): void;
+}) {
+  const { t } = useLanguage();
+  return (
+    <div className="provider-switcher" role="group" aria-label={t("AI 提供方")}>
+      {(["chatgpt", "deepseek"] as const).map((providerId) => {
+        const provider = providers.find((item) => item.id === providerId);
+        return (
+          <button
+            key={providerId}
+            type="button"
+            className={value === providerId ? "active" : ""}
+            aria-pressed={value === providerId}
+            disabled={disabled}
+            onClick={() => onChange(providerId)}
+          >
+            {providerId === "chatgpt" ? "ChatGPT" : "DeepSeek"}
+            <span className={provider?.configured ? "ready" : provider?.available ? "idle" : "offline"} />
+          </button>
+        );
+      })}
+      {disabled ? <small>{t("新建对话后可切换提供方")}</small> : null}
+    </div>
+  );
+}
+
+function DeepSeekSetup({ assistant, onDone, onCancel }: {
+  assistant: AssistantController;
+  onDone(): void;
+  onCancel?: () => void;
+}) {
+  const { t } = useLanguage();
+  const provider = assistant.activeProvider;
+  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "https://api.deepseek.com");
+  const [model, setModel] = useState(
+    provider?.model ?? assistant.models.find((item) => item.isDefault)?.model ?? "",
+  );
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState<"test" | "save" | "clear">();
+  const [status, setStatus] = useState<string>();
+  const [error, setError] = useState<string>();
+  const payload = (): DeepSeekProviderInput => ({
+    schemaVersion: 2,
+    baseUrl,
+    model,
+    ...(apiKey.trim() === "" ? {} : { apiKey: apiKey.trim() }),
+  });
+  const endpointHost = (() => {
+    try { return new URL(baseUrl).host; } catch { return baseUrl; }
+  })();
+
+  async function run(action: "test" | "save") {
+    setBusy(action);
+    setError(undefined);
+    setStatus(undefined);
+    try {
+      if (action === "test") {
+        await assistant.testDeepSeek(payload());
+        setStatus(t("连接成功"));
+      } else {
+        await assistant.saveDeepSeek(payload());
+        setApiKey("");
+        onDone();
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("请求失败"));
+    } finally {
+      setBusy(undefined);
+    }
+  }
+
+  return (
+    <div className="account-empty deepseek-setup">
+      <div className="ai-hero compact-hero">
+        <div className="ai-orb"><SparkIcon /></div>
+        <span className="ai-kicker">DEEPSEEK · RESPONSES API</span>
+        <h2>{t("配置 DeepSeek API")}</h2>
+        <p>{t("API Key 仅保存在本机，模型只能返回回答和待确认的命令建议。")}</p>
+      </div>
+      <label className="field"><span>{t("API 地址")}</span><input aria-label={t("API 地址")} value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} /></label>
+      <label className="field"><span>{t("模型")}</span><input aria-label={t("模型")} list="deepseek-setup-models" value={model} onChange={(event) => setModel(event.target.value)} /></label>
+      <datalist id="deepseek-setup-models">
+        {assistant.models.map((item) => (
+          <option key={item.model} value={item.model}>{item.displayName}</option>
+        ))}
+      </datalist>
+      <label className="field"><span>API Key</span><input aria-label="API Key" type="password" value={apiKey} placeholder={provider?.hasApiKey ? t("留空以保留已保存的密钥") : "sk-…"} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" /></label>
+      <p className="form-note">{t("密钥将发送到")} <strong>{endpointHost}</strong>。{provider?.credentialPersistence === "session-only" ? t("当前仅在本次会话中保存。") : t("密钥由 Windows 系统加密后保存。")}</p>
+      <div className="provider-actions">
+        <button className="ghost-button" disabled={!!busy} onClick={() => void run("test")}>{busy === "test" ? t("正在测试…") : t("测试连接")}</button>
+        <button className="primary-button" disabled={!!busy} onClick={() => void run("save")}>{busy === "save" ? t("正在保存…") : t("保存并使用")}</button>
+      </div>
+      {onCancel ? <button className="text-button" onClick={onCancel}>{t("取消")}</button> : null}
+      {provider?.configured ? <button className="text-button danger-text" disabled={!!busy} onClick={() => {
+        setBusy("clear");
+        void assistant.clearDeepSeek().then(onDone).catch((reason: unknown) => {
+          setError(reason instanceof Error ? reason.message : t("请求失败"));
+        }).finally(() => setBusy(undefined));
+      }}>{t("清除 DeepSeek 配置")}</button> : null}
+      {status ? <p className="form-success">{status}</p> : null}
+      {error ? <p className="form-error">{error}</p> : null}
+    </div>
   );
 }
 

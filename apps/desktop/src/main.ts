@@ -9,10 +9,11 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  safeStorage,
   shell,
 } from "electron";
 
-import { requireCodexCli, resolveCodexCliCandidates } from "./codex-cli.js";
+import { detectCodexCli } from "./codex-cli.js";
 import { matchesDesktopShortcut } from "./desktop-shortcuts.js";
 
 const toggleQuickAskChannel = "stackbridge:toggle-quick-ask";
@@ -75,10 +76,19 @@ async function startDesktop(): Promise<void> {
   app.setAppUserModelId("ai.soloedge.stackbridge");
   Menu.setApplicationMenu(null);
 
-  const codex = await requireCodexCli(resolveCodexCliCandidates());
-  process.env.STACKBRIDGE_CODEX_BIN = codex.command;
-  process.env.STACKBRIDGE_CODEX_ARG_PREFIX = JSON.stringify(codex.argumentPrefix);
-  console.log(`Using system Codex CLI: ${codex.version} (${codex.resolvedPath})`);
+  const detectedCodex = await detectCodexCli();
+  if (detectedCodex.available) {
+    process.env.STACKBRIDGE_CODEX_BIN = detectedCodex.codex.command;
+    process.env.STACKBRIDGE_CODEX_ARG_PREFIX = JSON.stringify(detectedCodex.codex.argumentPrefix);
+    delete process.env.STACKBRIDGE_CODEX_DISABLED;
+    console.log(`Using system Codex CLI: ${detectedCodex.codex.version} (${detectedCodex.codex.resolvedPath})`);
+  } else {
+    delete process.env.STACKBRIDGE_CODEX_BIN;
+    delete process.env.STACKBRIDGE_CODEX_ARG_PREFIX;
+    process.env.STACKBRIDGE_CODEX_DISABLED = "1";
+    console.warn(`ChatGPT provider unavailable: ${detectedCodex.error}`);
+  }
+  installDesktopSecretProtector();
 
   const port = await availableLoopbackPort();
   const workbenchUrl = `http://127.0.0.1:${port}`;
@@ -141,6 +151,22 @@ async function startDesktop(): Promise<void> {
   });
 
   await mainWindow.loadURL(`${workbenchUrl}/?desktop=1`);
+}
+
+function installDesktopSecretProtector(): void {
+  const key = Symbol.for("stackbridge.secretProtector");
+  const target = globalThis as typeof globalThis & Record<symbol, unknown>;
+  target[key] = safeStorage.isEncryptionAvailable()
+    ? {
+        persistence: "system-encrypted" as const,
+        protect(value: string): string {
+          return safeStorage.encryptString(value).toString("base64");
+        },
+        unprotect(value: string): string {
+          return safeStorage.decryptString(Buffer.from(value, "base64"));
+        },
+      }
+    : undefined;
 }
 
 function registerQuickAskGlobalShortcut(): void {

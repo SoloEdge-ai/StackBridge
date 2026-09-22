@@ -6,6 +6,7 @@ import type {
   ConversationSnapshot,
   CreateConversationRequest,
   CreateTurnRequest,
+  AiProviderId,
   OperationSnapshot,
 } from "@stackbridge/protocol";
 
@@ -25,7 +26,7 @@ export interface AssistantCommandProposal {
   command: string;
 }
 
-export interface TerminalAssistantContext {
+export interface AgentEngineContext {
   terminalSessionId: string;
   environment: TerminalContext["environment"];
   environmentStack: TerminalContext["environmentStack"];
@@ -47,15 +48,22 @@ export interface TerminalAssistantContext {
   contextTruncated: boolean;
 }
 
-export interface TerminalAssistant {
-  createThread(model: string): Promise<string>;
+export interface AgentEngine {
+  startSession(model: string): Promise<string | undefined>;
   runTurn(input: {
-    threadId: string;
+    conversationId: string;
+    providerSessionId?: string;
     model: string;
     message: string;
-    context: TerminalAssistantContext;
+    history: ConversationMessage[];
+    context: AgentEngineContext | null;
   }): Promise<{ answer: string; proposals: AssistantCommandProposal[] }>;
-  stopTurn?(threadId: string): Promise<void>;
+  stopTurn?(input: { conversationId: string; providerSessionId?: string }): Promise<void>;
+}
+
+export interface AgentEngineRouter {
+  engine(providerId: AiProviderId): AgentEngine | undefined;
+  defaultModel(providerId: AiProviderId): string;
 }
 
 interface ManagedConversation {
@@ -75,7 +83,7 @@ export class ConversationService {
 
   constructor(
     private readonly terminals: TerminalSessionManager,
-    private readonly assistant: TerminalAssistant,
+    private readonly engines: AgentEngine | AgentEngineRouter,
     private readonly now: () => Date = () => new Date(),
     private readonly persistence?: ConversationPersistence,
   ) {
@@ -105,15 +113,22 @@ export class ConversationService {
     if (this.terminals.get(input.terminalSessionId) === undefined) {
       throw new ConversationTerminalNotFoundError();
     }
-    const model = input.model ?? "gpt-5.6-luna";
-    const codexThreadId = await this.assistant.createThread(model);
+    const providerId = input.providerId ?? "chatgpt";
+    const model = input.model ?? (
+      "engine" in this.engines
+        ? this.engines.defaultModel(providerId)
+        : "gpt-5.6-luna"
+    );
+    const engine = this.requireEngine(providerId);
+    const providerSessionId = await engine.startSession(model);
     const now = this.now().toISOString();
     const snapshot: ConversationSnapshot = {
       schemaVersion: 2,
       id: randomUUID(),
       title: "新对话",
+      providerId,
       model,
-      codexThreadId,
+      ...(providerSessionId === undefined ? {} : { providerSessionId }),
       createdAt: now,
       updatedAt: now,
       messages: [],
@@ -141,6 +156,7 @@ export class ConversationService {
 
   async turn(id: string, input: CreateTurnRequest): Promise<ConversationSnapshot> {
     const conversation = this.requireConversation(id);
+    const engine = this.requireEngine(conversation.snapshot.providerId);
     const terminal = this.terminals.get(input.terminalSessionId);
     if (terminal === undefined) throw new ConversationTerminalNotFoundError();
     const frozen = terminal.context();
@@ -160,6 +176,7 @@ export class ConversationService {
       });
       this.lastEnvironmentByConversation.set(id, environmentSignature);
     }
+    const history = conversation.snapshot.messages.filter((message) => message.role !== "timeline").map((message) => clone(message));
     const userMessage: ConversationMessage = {
       schemaVersion: 2,
       id: randomUUID(),
@@ -175,11 +192,15 @@ export class ConversationService {
     }
     this.persistence?.saveConversation(conversation.snapshot);
 
-    const result = await this.assistant.runTurn({
-      threadId: conversation.snapshot.codexThreadId!,
+    const result = await engine.runTurn({
+      conversationId: conversation.snapshot.id,
+      ...(conversation.snapshot.providerSessionId === undefined
+        ? {}
+        : { providerSessionId: conversation.snapshot.providerSessionId }),
       model: conversation.snapshot.model,
       message: input.message,
-      context: buildAssistantContext(frozen, terminal.commands(), input.commandIds),
+      history,
+      context: input.contextMode === "none" ? null : buildAssistantContext(frozen, terminal.commands(), input.commandIds, input.contextMode),
     });
     const proposalIds: string[] = [];
     for (const candidate of result.proposals.slice(0, 8)) {
@@ -349,8 +370,22 @@ export class ConversationService {
 
   async stop(id: string): Promise<void> {
     const conversation = this.requireConversation(id);
-    if (this.assistant.stopTurn === undefined) return;
-    await this.assistant.stopTurn(conversation.snapshot.codexThreadId!);
+    const engine = this.requireEngine(conversation.snapshot.providerId);
+    if (engine.stopTurn === undefined) return;
+    await engine.stopTurn({
+      conversationId: conversation.snapshot.id,
+      ...(conversation.snapshot.providerSessionId === undefined
+        ? {}
+        : { providerSessionId: conversation.snapshot.providerSessionId }),
+    });
+  }
+
+  private requireEngine(providerId: AiProviderId): AgentEngine {
+    const engine = "engine" in this.engines
+      ? this.engines.engine(providerId)
+      : providerId === "chatgpt" ? this.engines : undefined;
+    if (engine === undefined) throw new AgentEngineUnavailableError(providerId);
+    return engine;
   }
 
   private requireConversation(id: string): ManagedConversation {
@@ -381,22 +416,23 @@ export class ConversationService {
   }
 }
 
-function buildAssistantContext(
+export function buildAssistantContext(
   context: TerminalContext,
   allCommands: ReturnType<import("./terminal-session.js").TerminalSession["commands"]>,
   requestedCommandIds: string[] | undefined,
-): TerminalAssistantContext {
-  const requested = new Set(requestedCommandIds ?? []);
+  mode?: "auto" | "manual" | "none",
+): AgentEngineContext {
+  const requested = new Set(mode === "auto" || mode === "none" ? [] : requestedCommandIds ?? []);
   const recent = allCommands.slice(-20);
   const selected = [
-    ...recent,
+    ...(mode === "manual" ? [] : recent),
     ...allCommands.filter((command) => requested.has(command.id)),
   ].filter((command, index, commands) =>
     commands.findIndex((candidate) => candidate.id === command.id) === index,
   );
   let remaining = maximumContextBytes;
   let contextTruncated = false;
-  const includeOutput = new Set(recent.slice(-3).map((command) => command.id));
+  const includeOutput = new Set((mode === "manual" ? [] : recent.slice(-3)).map((command) => command.id));
   const mapped = selected.map((command) => {
     let output: string | undefined;
     if (includeOutput.has(command.id) || requested.has(command.id)) {
@@ -436,6 +472,17 @@ function buildAssistantContext(
     contextTruncated,
   };
 }
+
+export class AgentEngineUnavailableError extends Error {
+  constructor(readonly providerId: AiProviderId) {
+    super(`${providerId} provider is unavailable`);
+  }
+}
+
+/** @deprecated Use AgentEngine. */
+export type TerminalAssistant = AgentEngine;
+/** @deprecated Use AgentEngineContext. */
+export type TerminalAssistantContext = AgentEngineContext;
 
 function assertFrozenScope(
   context: TerminalContext,

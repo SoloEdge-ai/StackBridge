@@ -10,6 +10,222 @@ const workbenchUrl = process.env.STACKBRIDGE_WEB_URL ?? "http://127.0.0.1:5173";
 
 test.beforeAll(() => mkdirSync(screenshotDirectory, { recursive: true }));
 
+test("configures DeepSeek from the AI rail without exposing its API key", async ({ page }) => {
+  let configured = false;
+  let savedModel = "deepseek-flash";
+  let conversation: Record<string, unknown> | undefined;
+  let turnCount = 0;
+  const conversationId = "00000000-0000-4000-8000-000000000101";
+  const createdAt = "2026-09-21T00:00:00.000Z";
+  const selectedCommandId = "00000000-0000-4000-8000-000000000901";
+  await page.route("**/v1/terminal-sessions/*/ai-context", async (route) => {
+    const selection = route.request().postDataJSON() as { contextMode: string; commandIds?: string[] };
+    const count = selection.contextMode === "none" ? 0 : selection.contextMode === "manual" ? selection.commandIds?.length ?? 0 : 3;
+    await route.fulfill({ json: { bytes: selection.contextMode === "none" ? 0 : 512 + count * 1024, outputCount: count, commands: [
+      { id: selectedCommandId, command: "echo SELECT_ME", cwd: "C:\\work", exitCode: 0, output: "SELECT_ME" },
+      { id: "00000000-0000-4000-8000-000000000902", command: "echo IGNORE_ME", cwd: "C:\\work", exitCode: 0, output: "IGNORE_ME" },
+      { id: "00000000-0000-4000-8000-000000000903", command: "echo THIRD", cwd: "C:\\work", exitCode: 0, output: "THIRD" },
+    ] } });
+  });
+  await page.route("**/v1/ai/account/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: 2,
+        available: true,
+        authenticated: true,
+        accountLabel: "Playwright ChatGPT",
+      }),
+    });
+  });
+  await page.route("**/v1/ai/providers", async (route) => {
+    if (route.request().method() !== "GET") return await route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [
+        {
+          id: "chatgpt",
+          kind: "chatgpt",
+          label: "ChatGPT",
+          available: true,
+          configured: true,
+          authenticated: true,
+          credentialPersistence: "codex-managed",
+        },
+        {
+          id: "deepseek",
+          kind: "deepseek",
+          label: "DeepSeek",
+          available: true,
+          configured,
+          authenticated: configured,
+          credentialPersistence: "system-encrypted",
+          hasApiKey: configured,
+          baseUrl: "https://api.deepseek.com",
+          model: savedModel,
+        },
+      ] }),
+    });
+  });
+  await page.route("**/v1/ai/providers/deepseek/test", async (route) => {
+    const input = route.request().postDataJSON() as { apiKey?: string; model?: string };
+    expect(input.apiKey).toBe("ds-ui-secret");
+    expect(input.model).toBe("deepseek-custom");
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, model: input.model }) });
+  });
+  await page.route("**/v1/ai/providers/deepseek", async (route) => {
+    if (route.request().method() === "PUT") {
+      const input = route.request().postDataJSON() as { apiKey?: string; model: string };
+      expect(input.apiKey).toBe("ds-ui-secret");
+      configured = true;
+      savedModel = input.model;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "deepseek",
+          kind: "deepseek",
+          label: "DeepSeek",
+          available: true,
+          configured: true,
+          authenticated: true,
+          credentialPersistence: "system-encrypted",
+          hasApiKey: true,
+          baseUrl: "https://api.deepseek.com",
+          model: savedModel,
+        }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route("**/v1/ai/models?providerId=deepseek", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ data: [
+        { id: "deepseek-flash", model: "deepseek-flash", displayName: "DeepSeek Flash", description: "", isDefault: true },
+        { id: "deepseek-v4-pro", model: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro", description: "", isDefault: false },
+        ...(configured && savedModel === "deepseek-custom"
+          ? [{ id: savedModel, model: savedModel, displayName: savedModel, description: "Custom DeepSeek model", isDefault: false }]
+          : []),
+      ] }),
+    });
+  });
+  await page.route("**/v1/conversations", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: conversation === undefined ? [] : [conversation] }),
+      });
+      return;
+    }
+    const input = route.request().postDataJSON() as { providerId?: string; model?: string };
+    expect(input).toMatchObject({ providerId: "deepseek", model: "deepseek-custom" });
+    conversation = {
+      schemaVersion: 2,
+      id: conversationId,
+      title: "New conversation",
+      providerId: "deepseek",
+      model: "deepseek-custom",
+      createdAt,
+      updatedAt: createdAt,
+      messages: [],
+      proposals: [],
+    };
+    await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(conversation) });
+  });
+  await page.route("**/v1/conversations/*/turns", async (route) => {
+    expect(route.request().url()).toContain(conversationId);
+    const input = route.request().postDataJSON() as { message: string };
+    turnCount += 1;
+    const timestamp = `2026-09-21T00:00:0${turnCount}.000Z`;
+    const messages = (conversation?.messages as unknown[] | undefined) ?? [];
+    conversation = {
+      ...conversation,
+      title: "DeepSeek routed conversation",
+      updatedAt: timestamp,
+      messages: [
+        ...messages,
+        {
+          schemaVersion: 2,
+          id: `00000000-0000-4000-8000-0000000002${turnCount}1`,
+          role: "user",
+          content: input.message,
+          createdAt: timestamp,
+        },
+        {
+          schemaVersion: 2,
+          id: `00000000-0000-4000-8000-0000000002${turnCount}2`,
+          role: "assistant",
+          content: `DeepSeek routed answer ${turnCount}`,
+          createdAt: timestamp,
+          proposalIds: [],
+        },
+      ],
+    };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(conversation) });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "AI assistant" }).click();
+  const providerGroup = page.getByRole("group", { name: "AI provider" });
+  await expect(providerGroup).toBeVisible();
+  await providerGroup.getByRole("button", { name: /DeepSeek/ }).click();
+  await expect(page.getByRole("heading", { name: "Configure DeepSeek API" })).toBeVisible();
+  await page.getByLabel("Model").fill("deepseek-custom");
+  await page.getByLabel("API Key").fill("ds-ui-secret");
+  await page.getByRole("button", { name: "Test connection" }).click();
+  await expect(page.getByText("Connection successful")).toBeVisible();
+  await page.getByRole("button", { name: "Save and use" }).click();
+  await expect(page.getByRole("button", { name: "Configure DeepSeek" })).toBeVisible();
+  await expect(page.locator("input[type='password']")).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("ds-ui-secret");
+
+  const composer = page.getByPlaceholder("Ask about the current command, output, or next step…");
+  await composer.fill("Route this through DeepSeek");
+  await composer.press("Enter");
+  await expect(page.getByText("DeepSeek routed answer 1")).toBeVisible();
+  await expect(providerGroup.getByRole("button", { name: /ChatGPT/ })).toBeDisabled();
+  await page.getByRole("button", { name: /New conversation/ }).click();
+  await providerGroup.getByRole("button", { name: /ChatGPT/ }).click();
+  await expect(providerGroup.getByRole("button", { name: /ChatGPT/ })).toHaveAttribute("aria-pressed", "true");
+
+  await page.locator(".history-select").selectOption(conversationId);
+  await expect(providerGroup.getByRole("button", { name: /DeepSeek/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".assistant-tools .model-input input")).toHaveValue("deepseek-custom");
+
+  await page.locator(".panel-header .icon-button").click();
+  await page.keyboard.press("F8");
+  const quickAsk = page.locator(".terminal-pane-shell.active .inline-assistant");
+  await expect(quickAsk).toBeVisible();
+  await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
+  await quickAsk.getByRole("button", { name: /Context ×/ }).click();
+  await quickAsk.getByLabel("Context mode").selectOption("none");
+  await expect(quickAsk).toContainText("0.0 KiB");
+  const nextTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
+  await quickAsk.locator("textarea").fill("Continue the DeepSeek conversation");
+  await quickAsk.locator("textarea").press("Enter");
+  expect((await nextTurn).postDataJSON()).toMatchObject({ contextMode: "none" });
+  await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 2");
+  await quickAsk.getByLabel("Context mode").selectOption("manual");
+  await quickAsk.getByLabel("echo SELECT_ME", { exact: true }).check();
+  await expect(quickAsk.getByRole("button", { name: "Context ×1" })).toBeVisible();
+  const manualTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
+  await quickAsk.locator("textarea").fill("Only the selected block");
+  await quickAsk.locator("textarea").press("Enter");
+  expect((await manualTurn).postDataJSON()).toMatchObject({ contextMode: "manual", commandIds: [selectedCommandId] });
+  await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 3");
+  await quickAsk.getByLabel("Context mode").selectOption("auto");
+  await expect(quickAsk.getByRole("button", { name: "Context ×3" })).toBeVisible();
+  await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
+  await page.screenshot({ path: resolve(screenshotDirectory, "quick-ask-context-selection.png") });
+  expect(turnCount).toBe(3);
+});
+
 test.afterEach(async ({ page }) => {
   if (!page.url().startsWith(workbenchUrl)) return;
   await page.evaluate(async () => {
@@ -41,7 +257,7 @@ test.afterEach(async ({ page }) => {
     await fetch("/v1/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ locale: "en" }),
+      body: JSON.stringify({ locale: "en", aiProviderId: "chatgpt" }),
     });
     localStorage.removeItem("stackbridge.locale");
   });
@@ -156,6 +372,13 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   const inlineAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(inlineAssistant).toBeVisible();
   await expect(page.locator(".assistant-panel")).toHaveCount(0);
+  await expect.poll(async () => {
+    const box = await inlineAssistant.boundingBox();
+    return box === null ? Infinity : Math.min(
+      Math.abs(box.y - (cursorBoxBeforeQuickAsk.y + cursorBoxBeforeQuickAsk.height)),
+      Math.abs(box.y + box.height - cursorBoxBeforeQuickAsk.y),
+    );
+  }).toBeLessThan(20);
   const terminalBoxWithQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
   const quickAskBox = await inlineAssistant.boundingBox();
   expect(terminalBoxBeforeQuickAsk).not.toBeNull();
@@ -163,7 +386,8 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   expect(cursorBoxBeforeQuickAsk).not.toBeNull();
   expect(quickAskBox).not.toBeNull();
   expect(Math.abs(terminalBoxWithQuickAsk!.height - terminalBoxBeforeQuickAsk!.height)).toBeLessThan(2);
-  expect(quickAskBox!.height).toBeLessThanOrEqual(44);
+  expect(quickAskBox!.height).toBeLessThanOrEqual(110);
+  await expect(inlineAssistant.locator(".ask-context-heading")).toContainText("ChatGPT");
   expect(quickAskBox!.width).toBeLessThanOrEqual(430);
   const distanceToCursor = Math.min(
     Math.abs(quickAskBox!.y - (cursorBoxBeforeQuickAsk!.y + cursorBoxBeforeQuickAsk!.height)),
@@ -174,7 +398,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   const contextIndicator = inlineAssistant.locator(".inline-context-indicator");
   await expect(contextIndicator).toBeVisible();
   await expect(contextIndicator).toHaveAttribute("type", "button");
-  await expect(contextIndicator).toHaveAttribute("title", /Local Windows.*powershell.*outputs/i);
+  await expect(contextIndicator).toHaveAttribute("title", /Local Windows.*powershell/i);
   await expect(inlineAssistant.getByRole("button", { name: "History & details" })).toHaveCount(0);
   await expect(inlineAssistant.getByRole("button", { name: "Close Quick Ask" })).toHaveCount(0);
   const quickAskInput = inlineAssistant.locator("textarea");

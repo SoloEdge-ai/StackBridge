@@ -28,7 +28,7 @@
 | ChatGPT | 官方 Codex App Server 适配器 + 本地 MCP 工具桥；验证版本与权限边界后启用托管执行 |
 | API | 自研小型工具调用循环；DeepSeek 预设与 OpenAI-compatible 适配，不混同 Codex 认证 |
 | 权限 | 本地 Tool Gateway + 目标端能力校验；任意 shell 默认需审批；路径限制不冒充 OS 沙箱 |
-| 数据 | SQLite 存元数据/任务/审批，分块文件存大日志；凭证单独存安全库 |
+| 数据 | SQLite 存元数据/任务/审批，分块文件存大日志；API Key 经系统安全能力加密后只保存密文或不透明会话引用 |
 | 交付顺序 | M0 关键原型 → M1 终端与目标 → M2 跨环境 AI → M3 日常工作稳定性 → M4 Ubuntu 桌面 |
 
 远端 Go 运行时不是第二套业务后端。它不得实现模型调用、账号管理、产品 UI、工作区管理或云同步。采用它是为了避免在开发机和每个容器里引入 Node 运行环境；这是为远端低依赖作出的工程取舍。
@@ -41,7 +41,7 @@
 - 独立后台启动后，可由本地浏览器使用核心功能，不需要先打开 Electron。
 - Linux SSH 开发机，支持用户已有 SSH 配置、密钥代理和跳板配置。
 - 开发机上的 Linux Docker 容器，既能交互操作，也能由 AI 读取目标文件、提出修改、审批后执行和验证。
-- 本地 ChatGPT 登录（通过 Codex），DeepSeek API 配置，以及多个互不覆盖的配置档案。
+- 本地 ChatGPT 登录（通过 Codex）与 DeepSeek API 配置；首个 DeepSeek 版本保存一个稳定 ID 的档案，协议保留后续扩展多档案的空间。
 - AI 的每个读取、写入、执行操作都绑定经过核验的目标身份。
 - 真实长任务管理、取消、断线状态核验、审计、上下文隐私控制。
 
@@ -79,7 +79,7 @@
 
 ### 2.2 连续对话与冻结 Agent Session
 
-用户看到的 `ConversationSession` 对应一个连续的 Codex thread，可以包含多个终端和环境的历史。每次提问再创建一个 `AgentSession`，冻结当时的终端、环境层、binding、cwd、Shell 与输入版本。工具实现从该服务端作用域注入 target/binding，不能让模型通过填写任意 `targetId` 获得权限。
+用户看到的 `ConversationSession` 冻结一个提供方与模型，可以包含多个终端和环境的历史。ChatGPT 会话对应一个连续的 Codex thread；DeepSeek 会话由 Core 保存并按 Responses API 逐轮发送有界历史。每次提问再创建一个 `AgentSession`，冻结当时的终端、环境层、binding、cwd、Shell 与输入版本。工具实现从该服务端作用域注入 target/binding，不能让模型通过填写任意 `targetId` 获得权限。
 
 从宿主机切到容器时，对话继续并插入带环境归属的时间线；已经开始的 turn、建议卡和执行操作仍固定在原作用域。用户切换 UI 焦点只能改变下一次提问的默认环境，不能改变正在执行的任务目标。
 
@@ -195,7 +195,7 @@ noexec、只读根目录、权限不足、exec 禁止时，不自动要求 root�
 
 ### 5.2 API 路线
 
-DeepSeek 预设采用其公开支持的 API 协议；模型 ID 与能力通过当前服务商信息/用户配置取得，不硬编码过时模型。[R8]
+DeepSeek 预设采用其公开支持的 API 协议；首版展示当前官方建议项 `deepseek-flash`、`deepseek-v4-pro`，同时允许用户输入自定义模型 ID。建议项需随官方信息更新，不能阻止使用未内置的新模型。[R8]
 
 本地 API Agent 执行：构造上下文 → 请求模型 → 收集完整工具调用 → 校验参数 → Tool Gateway 审批 → 目标执行 → 返回结构化结果 → 继续或结束。
 
@@ -452,12 +452,16 @@ interface ExecutionRequest {
 | WS /v1/terminal-sessions/:id/stream | 输入/输出/resize，含写入租约 |
 | GET /v1/terminal-sessions/:id/context | 当前环境、Shell 状态和命令引用 |
 | GET /v1/terminal-sessions/:id/commands | 分页读取命令块与输出 |
-| POST /v1/conversations | 创建连续对话与 Codex thread |
+| POST /v1/conversations | 按提供方与模型创建连续对话；ChatGPT 同时创建 Codex thread |
 | POST /v1/conversations/:id/turns | 冻结 AgentSession 并提交带上下文的提问 |
 | POST /v1/approvals/:id/decision | 用户审批；校验来源与当前 binding |
 | GET /v1/operations/:id | 查询确认执行的幂等状态 |
 | POST /v1/conversations/:id/stop | 停止 AI 生成，不中断终端任务 |
 | /v1/ai/account/* | ChatGPT 登录状态、开始/取消登录与退出 |
+| GET /v1/ai/providers | 返回 ChatGPT/DeepSeek 可用性、配置与脱敏凭据状态 |
+| PUT/DELETE /v1/ai/providers/deepseek | 保存或清除单个 DeepSeek 档案 |
+| POST /v1/ai/providers/deepseek/test | 测试 DeepSeek Responses API 配置 |
+| GET /v1/ai/models?providerId=... | 返回提供方模型目录与自定义 DeepSeek 模型 |
 | WS /v1/events | 任务/审批/AI 状态事件，按序号补发 |
 
 所有状态修改都需要认证和 runtime schema 校验。文件工具等内部 API 也必须通过同一权限核心，不能存在为方便调试而绕过网关的生产端点。
@@ -497,7 +501,7 @@ SQLite 实体：workspaces、connection_profiles、targets、runtime_bindings、
 
 大输出按 chunk 写文件，SQLite 只保存索引/引用。输出在 UI、日志、模型上下文中使用不同保留策略与预算。查询以工作区/目标/命令/状态/时间过滤，不默认把所有历史发给模型。
 
-凭证库仅保存 secret，数据库保存 credentialRef。备份默认不导出凭证，清楚区分“导出配置”和“导出密钥”。
+桌面版由 Electron `safeStorage` 提供系统加解密能力，Core 只依赖抽象加密器；SQLite 只能保存密文，不能保存明文 API Key。非 Electron 开发模式只保存无法跨进程恢复的不透明会话引用。备份默认不导出可用凭证，清楚区分“导出配置”和“导出密钥”。
 
 Windows 安装包包含可运行的 Core 环境与正确 ABI 的原生依赖；浏览器开发与桌面打包均须测试，不能只在开发机器 npm install 后通过。Electron 与独立 Node 的原生模块使用场景不同，不假定同一个 node-pty 编译产物通用。Windows x64 便携产物使用 `StackBridge-Portable-<version>-x64.exe` 命名，不提交到 Git；Pull Request 验证保留短期 Actions Artifact，每次合入 `main` 后自动创建版本 Tag 和 GitHub Release，并上传可执行文件及 SHA-256 校验和。
 

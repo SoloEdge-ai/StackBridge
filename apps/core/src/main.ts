@@ -2,6 +2,11 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { CodexAppServer, defaultCodexDirectories } from "./codex-app-server.js";
+import {
+  AiProviderService,
+  createSessionSecretProtector,
+  type SecretProtector,
+} from "./ai-provider-service.js";
 import { ConversationService } from "./conversation-service.js";
 import {
   RemoteRuntimeManager,
@@ -77,12 +82,22 @@ if (codexArgumentPrefix !== undefined && (
 )) {
   throw new Error("STACKBRIDGE_CODEX_ARG_PREFIX must be a JSON string array");
 }
-const ai = new CodexAppServer({
-  ...codexDirectories,
-  ...(process.env.STACKBRIDGE_CODEX_BIN === undefined
-    ? {}
-    : { command: process.env.STACKBRIDGE_CODEX_BIN }),
-  ...(codexArgumentPrefix === undefined ? {} : { argumentPrefix: codexArgumentPrefix }),
+const codex = process.env.STACKBRIDGE_CODEX_DISABLED === "1"
+  ? undefined
+  : new CodexAppServer({
+      ...codexDirectories,
+      ...(process.env.STACKBRIDGE_CODEX_BIN === undefined
+        ? {}
+        : { command: process.env.STACKBRIDGE_CODEX_BIN }),
+      ...(codexArgumentPrefix === undefined ? {} : { argumentPrefix: codexArgumentPrefix }),
+    });
+const injectedSecretProtector = (
+  globalThis as typeof globalThis & Record<symbol, unknown>
+)[Symbol.for("stackbridge.secretProtector")] as SecretProtector | undefined;
+const ai = new AiProviderService({
+  profiles: workspaceStore,
+  secretProtector: injectedSecretProtector ?? createSessionSecretProtector(),
+  ...(codex === undefined ? {} : { codex }),
 });
 const conversations = new ConversationService(
   terminalSessions,

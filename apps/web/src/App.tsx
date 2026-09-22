@@ -412,7 +412,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   const askAboutCommand = useCallback((paneId: string, prompt: string, commandId?: string) => {
     setSplitMenu(undefined);
     setQuickAiPaneId(paneId);
-    if (assistant.account?.authenticated) {
+    if (assistant.providerReady) {
       void assistant.send(prompt, commandId ? [commandId] : undefined, paneId);
     } else {
       assistant.setMessage(prompt, paneId);

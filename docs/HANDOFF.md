@@ -1,6 +1,6 @@
 # 当前交接
 
-更新日期：2026-09-18
+更新日期：2026-09-22
 
 ## 当前可用链路
 
@@ -12,15 +12,25 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 - 终端区域右键可创建横向（左右）或纵向（上下）分栏；每个窗格拥有独立 TerminalSession/PTY。受管 SSH/Docker 分栏复制连接配置并重新核验；每个窗格自己的紧凑状态线持续显示环境链、cwd 和 Shell，PowerShell/Bash/Zsh 每次提示符前也回显链路，状态栏和 AI 上下文跟随聚焦窗格。
 - 关闭终端标签会显式终止 PTY，并释放关联的本地/远端会话容量；普通刷新不会触发关闭。
 - Codex App Server 使用独立 `CODEX_HOME`；为避开 Windows Credential Manager 对长 OAuth token 的 2560 字符限制，启动时固定 `cli_auth_credentials_store="file"`，凭据保存在 `%LOCALAPPDATA%\StackBridge\codex\auth.json`。一个连续对话对应一个 Codex thread。
+- AI 路由支持 ChatGPT 与 DeepSeek。提供方和模型随对话冻结；DeepSeek 直接调用 `/responses`，API Key 在桌面版经 Windows 系统加密后保存，浏览器开发模式仅保存到当前 Core 会话。DeepSeek 没有模型工具，只返回回答与待确认建议。
 - Web UI 默认英文；Settings → Language 可即时切换简体中文，选择保存到本地并在刷新或重启后恢复。
 - 每次提问冻结终端、环境、binding、cwd、Shell、context/input 版本；跨环境历史写入同一对话时间线。
 - 默认上下文包含最近 20 条命令、最近 3 条输出或运行中快照，输出上限 64 KiB，并做控制字符清理和基础敏感信息遮蔽。
 - AI 只能返回回答与命令建议。Core 拥有不可变建议和持久化 operation；执行需要逐条确认、五分钟内有效、原目标未变、环境已核验、Shell 仍存活且空闲、输入为空，并且批准页面持有写入租约。
 - 经确认命令在原 Shell 执行，所以 `cd`、`export` 和虚拟环境状态继续有效；重复确认、刷新和重试不会二次提交。
 - SQLite 保存对话、冻结建议和命令元数据，终端输出分块保存；默认七天/1 GiB 清理。
-- Windows x64 便携版将生产 Web、Core、ConPTY 依赖和 Linux 远程 runtime 封装为单文件；Codex CLI 不再打包。Electron 启动时检查 PATH 中全部 Codex 候选，将 npm `.cmd` shim 解析为包内原生可执行文件，按完整版本标识选择并核验最新的系统 Codex 0.155.0+ 及其 `app-server` 能力；失败则显示原生错误并退出，成功后把同一个绝对启动描述交给 Core，同时继续管理窗口、随机回环端口和进程生命周期。
+- Windows x64 便携版将生产 Web、Core、ConPTY 依赖和 Linux 远程 runtime 封装为单文件；Codex CLI 不再打包。Electron 启动时检查 PATH 中的 Codex 候选并核验 0.155.0+ 与 `app-server` 能力；失败时只禁用 ChatGPT，不阻止 Core、窗口、终端和 DeepSeek 启动。
+
+## 本轮 ChatGPT / DeepSeek 路由（2026-09-22）
+
+- 主要改动：`packages/protocol` 增加提供方契约；`apps/core` 增加 AgentEngine 路由、DeepSeek Responses provider、历史与终端上下文各自严格 64 KiB 的输入块、加密档案与旧会话迁移；`apps/desktop` 增加可选 Codex 探测与 `safeStorage` 注入；`apps/web` 增加提供方切换、DeepSeek 配置和按历史恢复路由。
+- 自动验证：`pnpm typecheck` 通过；`pnpm test` 通过（Core 65、Web 15、Desktop 12、Protocol 20，另有 3 项环境条件测试跳过）；Playwright `workbench.spec.ts` 9 项通过、5 项需真实 ChatGPT/SSH/Docker 环境而跳过；`pnpm build` 与 `pnpm desktop:portable` 通过。
+- DeepSeek HTTP fixture 覆盖 `/responses` 路径、Bearer 认证、JSON Schema 输出、连续历史、严格上下文限额、取消、超时、401、429、5xx、无效响应、HTTPS 策略、密钥脱敏和解密失败后重新输入。测试密钥均为本地假值，不进入产物凭据。
+- 尚未验证：真实 DeepSeek 服务和真实 API Key。最终冒烟由用户在应用内输入密钥完成；不得把真实密钥写入聊天、命令行、仓库或 CI。
 
 ## 实机状态
+
+- Quick Ask 追加 Provider/model、每条消息 auto/manual/none 上下文选择和本地 KiB 估算；完整 AI 面板共用选择。详见 `docs/design/QUICK_ASK_CONTEXT_SELECTION.md`。PR #3 保持打开，等待用户 EXE 验收，不得自动合并。
 
 - Windows 本地 PowerShell：真实输入、Unicode、emoji、resize、Ctrl+C、同 Shell 状态、刷新重附着已验证。
 - `friden@friden-dev-cube`：真实 Zsh PTY、cwd、中文输出和 Ctrl+C 已验证。

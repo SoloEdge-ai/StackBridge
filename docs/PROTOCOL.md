@@ -114,6 +114,20 @@ Core 最多同时持有 16 个终端会话；达到上限时先淘汰已退出�
 - Core 为每个 WebSocket 设置 2 MiB 待发送上限，Web 渲染队列设置 4 MiB 上限；慢客户端超过上限时以 `1013` 断开，避免无界内存增长。
 - 终端数据仍是不可信字节流，只交给 xterm.js 渲染，不解析为权限、目标身份或控制指令。
 
+## AI 提供方 HTTP
+
+所有 AI 端点要求有效的本地认证 cookie 与允许的 `Origin`。`GET /v1/ai/providers` 返回 ChatGPT/DeepSeek 的可用性、配置状态和凭据保存方式；任何响应都不返回 API Key，只返回 `hasApiKey`。`GET /v1/ai/models?providerId=chatgpt|deepseek` 返回对应模型目录。
+
+`PUT /v1/ai/providers/deepseek` 保存单个 DeepSeek 档案，输入为 `baseUrl`、`model` 和可选 `apiKey`；省略密钥表示保留原密钥。`POST /v1/ai/providers/deepseek/test` 使用相同输入测试 Responses API，`DELETE /v1/ai/providers/deepseek` 清除档案。生产运行时 Base URL 必须为 HTTPS；本地模拟 API 的自动化测试通过内部显式开关仅允许 loopback HTTP，该开关不由生产 HTTP 接口暴露。
+
+`POST /v1/conversations` 接受 `providerId` 与 `model`。返回的 `ConversationSnapshot` 包含冻结的 `providerId`、`model` 与通用 `providerSessionId`；旧持久化数据中的 `codexThreadId` 会迁移为 ChatGPT 会话。后续 turn、停止和历史恢复始终按对话中冻结的提供方路由，不接受跨提供方续写。
+
+保留 `/v1/ai/account/*` 作为 ChatGPT/Codex 登录接口。Codex 不可用时这些接口和 ChatGPT 新会话返回提供方不可用错误，但不会影响终端与 DeepSeek。
+
+每条 turn 支持 `contextMode: auto | manual | none`。`auto` 附带最近 20 条命令信息和最近 3 条输出，忽略残留的 `commandIds`；`manual` 仅附带 `commandIds` 指定的命令块和当前环境；`none` 不发送新的终端上下文，已有对话历史仍保留。省略模式保留旧版自动上下文加显式命令 ID 的行为。
+
+`POST /v1/terminal-sessions/:id/ai-context` 使用相同的可选 `contextMode` 和 `commandIds` 返回本地预览：序列化终端上下文估算字节数 `bytes`、附带输出数量 `outputCount`、最近 20 条命令候选 `commands`（输出预览末尾 4,000 字符）。估算不包含问题、对话历史及提供方封装。预览与发送共用上下文选择逻辑；Core 仍独立冻结执行审批目标。
+
 ## 远端会话 HTTP
 
 所有端点继续要求有效的本地认证 cookie 和允许的 `Origin`。

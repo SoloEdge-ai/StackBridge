@@ -23,6 +23,10 @@ export interface VerifiedCodexCli extends CodexLaunchDescriptor {
   version: string;
 }
 
+export type CodexDetection =
+  | { available: true; codex: VerifiedCodexCli }
+  | { available: false; error: string };
+
 interface CodexResolutionOptions {
   platform?: NodeJS.Platform;
   path?: string;
@@ -45,6 +49,20 @@ export function resolveCodexCli(
   options: CodexResolutionOptions = {},
 ): CodexLaunchDescriptor {
   return resolveCodexCliCandidates(options)[0]!;
+}
+
+export async function detectCodexCli(
+  resolveCandidates: () => CodexLaunchDescriptor[] = () => resolveCodexCliCandidates(),
+  probe: CodexCommandProbe = probeCodexCommand,
+): Promise<CodexDetection> {
+  try {
+    return { available: true, codex: await requireCodexCli(resolveCandidates(), probe) };
+  } catch (error) {
+    return {
+      available: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export function resolveCodexCliCandidates(

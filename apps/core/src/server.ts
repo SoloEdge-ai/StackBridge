@@ -15,7 +15,7 @@ import {
   authenticatedBrowserSession,
   browserSessionCookieName,
 } from "./browser-auth.js";
-import type { CodexAppServer } from "./codex-app-server.js";
+import type { AiProviderService } from "./ai-provider-service.js";
 import type { ConversationService } from "./conversation-service.js";
 import { isRecord, readJsonBody, writeJson } from "./http.js";
 import {
@@ -48,12 +48,23 @@ export interface CoreServerOptions {
   ) => Promise<RemotePtyLaunch>;
   conversations?: ConversationService;
   ai?: Pick<
-    CodexAppServer,
-    "accountStatus" | "startLogin" | "cancelLogin" | "logout" | "models" | "close"
+    AiProviderService,
+    | "accountStatus"
+    | "startLogin"
+    | "cancelLogin"
+    | "logout"
+    | "models"
+    | "providers"
+    | "configureDeepSeek"
+    | "testDeepSeek"
+    | "clearDeepSeek"
+    | "close"
   >;
   settings?: {
     loadLocale(): "en" | "zh-CN";
     saveLocale(locale: "en" | "zh-CN"): void;
+    loadAiProviderId(): "chatgpt" | "deepseek";
+    saveAiProviderId(providerId: "chatgpt" | "deepseek"): void;
   };
 }
 
@@ -153,18 +164,35 @@ export function createCoreServer(options: CoreServerOptions): CoreServer {
     }
 
     if (request.method === "GET" && url.pathname === "/v1/settings") {
-      writeJson(response, 200, { locale: options.settings?.loadLocale() ?? "en" });
+      writeJson(response, 200, {
+        locale: options.settings?.loadLocale() ?? "en",
+        aiProviderId: options.settings?.loadAiProviderId() ?? "chatgpt",
+      });
       return;
     }
 
     if (request.method === "PUT" && url.pathname === "/v1/settings") {
       const body = await readJsonBody(request);
-      if (!isRecord(body) || (body.locale !== "en" && body.locale !== "zh-CN")) {
+      if (!isRecord(body)) {
         writeJson(response, 400, { error: "invalid_request" });
         return;
       }
-      options.settings?.saveLocale(body.locale);
-      writeJson(response, 200, { locale: body.locale });
+      const locale = body.locale;
+      const providerId = body.aiProviderId;
+      if (
+        !(locale === undefined || locale === "en" || locale === "zh-CN") ||
+        !(providerId === undefined || providerId === "chatgpt" || providerId === "deepseek") ||
+        (locale === undefined && providerId === undefined)
+      ) {
+        writeJson(response, 400, { error: "invalid_request" });
+        return;
+      }
+      if (locale !== undefined) options.settings?.saveLocale(locale);
+      if (providerId !== undefined) options.settings?.saveAiProviderId(providerId);
+      writeJson(response, 200, {
+        locale: options.settings?.loadLocale() ?? (locale ?? "en"),
+        aiProviderId: options.settings?.loadAiProviderId() ?? (providerId ?? "chatgpt"),
+      });
       return;
     }
 

@@ -16,7 +16,7 @@ const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof
 
 import type { ApprovedCommandRequest, CommandBlock } from "./terminal-session.js";
 
-const schemaVersion = 2;
+const schemaVersion = 3;
 const defaultRetentionMs = 7 * 24 * 60 * 60_000;
 const defaultOutputLimitBytes = 1024 * 1024 * 1024;
 
@@ -37,6 +37,20 @@ export interface ConversationPersistence {
     scope: ApprovedCommandRequest,
     operation: OperationSnapshot,
   ): void;
+}
+
+export interface StoredDeepSeekProfile {
+  baseUrl: string;
+  model: string;
+  protectedApiKey: string;
+  updatedAt: string;
+  lastVerifiedAt?: string;
+}
+
+export interface AiProviderProfilePersistence {
+  loadDeepSeekProfile(): StoredDeepSeekProfile | undefined;
+  saveDeepSeekProfile(profile: StoredDeepSeekProfile): void;
+  deleteDeepSeekProfile(): void;
 }
 
 export class WorkspaceStore implements ConversationPersistence {
@@ -69,7 +83,13 @@ export class WorkspaceStore implements ConversationPersistence {
     ).all() as Array<{ snapshot_json: string }>;
     return rows.flatMap(({ snapshot_json }) => {
       const parsed = conversationSnapshotSchema.safeParse(JSON.parse(snapshot_json));
-      return parsed.success ? [parsed.data] : [];
+      if (!parsed.success) return [];
+      const providerSessionId = parsed.data.providerSessionId ?? parsed.data.codexThreadId;
+      const { codexThreadId: _legacyCodexThreadId, ...snapshot } = parsed.data;
+      return [{
+        ...snapshot,
+        ...(providerSessionId === undefined ? {} : { providerSessionId }),
+      }];
     });
   }
 
@@ -96,17 +116,72 @@ export class WorkspaceStore implements ConversationPersistence {
   }
 
   loadLocale(): "en" | "zh-CN" {
-    try {
-      const value = JSON.parse(readFileSync(this.settingsPath, "utf8")) as { locale?: unknown };
-      return value.locale === "zh-CN" ? "zh-CN" : "en";
-    } catch {
-      return "en";
-    }
+    return this.readSettings().locale === "zh-CN" ? "zh-CN" : "en";
+  }
+
+  loadDeepSeekProfile(): StoredDeepSeekProfile | undefined {
+    const row = this.database.prepare(
+      "SELECT profile_json FROM ai_provider_profiles WHERE id = 'deepseek'",
+    ).get() as { profile_json: string } | undefined;
+    if (row === undefined) return undefined;
+    const value = JSON.parse(row.profile_json) as Partial<StoredDeepSeekProfile>;
+    if (
+      typeof value.baseUrl !== "string" ||
+      typeof value.model !== "string" ||
+      typeof value.protectedApiKey !== "string" ||
+      typeof value.updatedAt !== "string"
+    ) return undefined;
+    return {
+      baseUrl: value.baseUrl,
+      model: value.model,
+      protectedApiKey: value.protectedApiKey,
+      updatedAt: value.updatedAt,
+      ...(typeof value.lastVerifiedAt === "string"
+        ? { lastVerifiedAt: value.lastVerifiedAt }
+        : {}),
+    };
+  }
+
+  saveDeepSeekProfile(profile: StoredDeepSeekProfile): void {
+    this.database.prepare(`
+      INSERT INTO ai_provider_profiles (id, profile_json, updated_at)
+      VALUES ('deepseek', ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        profile_json = excluded.profile_json,
+        updated_at = excluded.updated_at
+    `).run(JSON.stringify(profile), profile.updatedAt);
+  }
+
+  deleteDeepSeekProfile(): void {
+    this.database.prepare("DELETE FROM ai_provider_profiles WHERE id = 'deepseek'").run();
   }
 
   saveLocale(locale: "en" | "zh-CN"): void {
+    this.writeSettings({ ...this.readSettings(), locale });
+  }
+
+  loadAiProviderId(): "chatgpt" | "deepseek" {
+    return this.readSettings().aiProviderId === "deepseek" ? "deepseek" : "chatgpt";
+  }
+
+  saveAiProviderId(aiProviderId: "chatgpt" | "deepseek"): void {
+    this.writeSettings({ ...this.readSettings(), aiProviderId });
+  }
+
+  private readSettings(): { locale?: unknown; aiProviderId?: unknown } {
+    try {
+      return JSON.parse(readFileSync(this.settingsPath, "utf8")) as {
+        locale?: unknown;
+        aiProviderId?: unknown;
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  private writeSettings(value: { locale?: unknown; aiProviderId?: unknown }): void {
     const temporaryPath = `${this.settingsPath}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify({ locale }, null, 2), {
+    writeFileSync(temporaryPath, JSON.stringify(value, null, 2), {
       encoding: "utf8",
       mode: 0o600,
     });
@@ -273,6 +348,19 @@ export class WorkspaceStore implements ConversationPersistence {
           ON execution_operations(proposal_id, updated_at DESC);
         INSERT INTO schema_migrations (version, applied_at)
           VALUES (2, datetime('now'));
+        COMMIT;
+      `);
+    }
+    if (current.version < 3) {
+      this.database.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE ai_provider_profiles (
+          id TEXT PRIMARY KEY,
+          profile_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO schema_migrations (version, applied_at)
+          VALUES (3, datetime('now'));
         COMMIT;
       `);
     }
