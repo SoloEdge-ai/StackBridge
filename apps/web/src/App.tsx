@@ -53,6 +53,10 @@ const shortcutStorageKey = "stackbridge.aiShortcut";
 
 type AuthState = "checking" | "unavailable" | "authenticated";
 
+function hasOpenModal(): boolean {
+  return document.querySelector("dialog[open]") !== null;
+}
+
 export function App() {
   const { t } = useLanguage();
   const [authState, setAuthState] = useState<AuthState>("checking");
@@ -181,7 +185,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
   const toggleQuickAsk = useCallback(() => {
     // Both desktop and browser shortcuts must leave a modal's focus intact.
-    if (document.querySelector("dialog[open]")) return;
+    if (hasOpenModal()) return;
     const tab = tabs.find((item) => item.id === activeId);
     const pane = tab
       ? findPane(tab.layout, tab.activePaneId) ?? flattenPanes(tab.layout)[0]
@@ -199,7 +203,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (event.isComposing || document.querySelector("dialog[open]")) return;
+      if (event.isComposing || hasOpenModal()) return;
       if (event.key === "Escape" && quickAiPaneId) {
         setQuickAiPaneId(undefined);
         window.dispatchEvent(new Event("stackbridge:terminal-focus"));
