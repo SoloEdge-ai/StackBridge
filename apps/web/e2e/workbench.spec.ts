@@ -213,8 +213,9 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
   await quickAsk.getByRole("button", { name: /Context ×/ }).click();
   await page.getByRole("dialog").getByLabel("Context mode").selectOption("none");
+  await expect(page.getByRole("dialog")).toContainText("0.0 KiB");
   await page.getByRole("button", { name: "Close context selection" }).click();
-  await expect(quickAsk).toContainText("0.0 KiB");
+  await expect(quickAsk).toContainText("No terminal content");
   const nextTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
   await quickAsk.locator("textarea").fill("Continue the DeepSeek conversation");
   await quickAsk.locator("textarea").press("Enter");
@@ -324,6 +325,11 @@ test("highlights whole command blocks and supports range dragging and a movable 
   await expect(quick).toHaveAttribute("data-placement", "fixed");
   await expect.poll(async () => (await quick.boundingBox())!.width).toBeCloseTo(resized!.width, 0);
   await page.screenshot({ path: resolve(screenshotDirectory, "terminal-context-highlights.png") });
+  await quick.getByRole("button", { name: "Restore compact" }).click();
+  await expect(quick).toHaveAttribute("data-placement", "fixed");
+  await expect.poll(async () => (await quick.boundingBox())!.height).toBeLessThan(resized!.height - 40);
+  await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();
+  await page.screenshot({ path: resolve(screenshotDirectory, "quick-ask-restored-compact.png") });
   await quick.getByRole("button", { name: "Follow cursor" }).click();
   await expect(quick).not.toHaveAttribute("data-placement", "fixed");
   await page.keyboard.press("Escape");

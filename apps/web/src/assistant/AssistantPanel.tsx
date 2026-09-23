@@ -165,8 +165,8 @@ export function AssistantPanel({
             {item.role === "assistant" ? <AssistantMarkdown content={item.content} /> : <div className="message-body">{item.role === "timeline" ? localizedSystemMessage(item.content, locale) : item.content}</div>}
             <MessageAttachments message={item} assistant={assistant} />
             {item.proposalIds?.map((id) => {
-              const proposal = conversation.proposals.find((candidate) => candidate.id === id);
-              return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={(item, decision) => void assistant.decide(item, decision)} onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
+              const proposal = latestProposal(conversation.proposals, id);
+              return proposal ? <ProposalCard key={proposal.id} proposal={proposal} busy={!!assistant.proposalBusy[proposal.id]} error={assistant.proposalErrors[proposal.id]} onRecheck={() => void assistant.recheck(proposal)} onDecision={(item, decision) => void assistant.decide(item, decision)} onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
             })}
           </div>
         ))}
@@ -308,8 +308,23 @@ function DeepSeekSetup({ assistant, onDone, onCancel }: {
   );
 }
 
-export function ProposalCard({ proposal, onDecision, onExplain }: {
+function latestProposal(proposals: CommandProposal[], id: string): CommandProposal | undefined {
+  const visited = new Set<string>();
+  let proposal = proposals.find((item) => item.id === id);
+  while (proposal?.replacementProposalId && !visited.has(proposal.id)) {
+    visited.add(proposal.id);
+    const next = proposals.find((item) => item.id === proposal!.replacementProposalId);
+    if (!next) break;
+    proposal = next;
+  }
+  return proposal;
+}
+
+export function ProposalCard({ proposal, busy, error, onRecheck, onDecision, onExplain }: {
   proposal: CommandProposal;
+  busy: boolean;
+  error: string | undefined;
+  onRecheck(): void;
   onDecision(proposal: CommandProposal, decision: ApprovalDecision): void;
   onExplain(commandBlockId: string): void;
 }) {
@@ -325,13 +340,16 @@ export function ProposalCard({ proposal, onDecision, onExplain }: {
         {proposal.containerId ? <span title={proposal.containerId}>{t("容器")} {proposal.containerId.slice(0, 12)}</span> : null}
         <span>{proposal.user || t("当前用户")}</span><span>{proposal.cwd || t("当前目录")}</span><span>{proposal.shell}</span>
       </div>
+      {error || proposal.status === "stale" || proposal.status === "expired" ? <p className="proposal-notice" role="status">{error ?? t("终端状态已变化。重新检查原终端后，才能再次确认执行。")}</p> : null}
+      {proposal.replacesProposalId && proposal.status === "pending" ? <p className="proposal-notice" role="status">{t("已重新检查。请核对命令与原执行目标，再确认执行。")}</p> : null}
       {proposal.status === "pending" ? (
         <div className="proposal-actions">
-          <button className="primary-button compact" onClick={() => onDecision(proposal, "execute")}>{t("在此终端执行")}</button>
-          <button className="ghost-button compact" onClick={() => onDecision(proposal, "insert")}>{t("放入输入行")}</button>
-          <button className="text-button" onClick={() => onDecision(proposal, "reject")}>{t("暂不执行")}</button>
+          <button className="primary-button compact" disabled={busy} onClick={() => onDecision(proposal, "execute")}>{t("在此终端执行")}</button>
+          <button className="ghost-button compact" disabled={busy} onClick={() => onDecision(proposal, "insert")}>{t("放入输入行")}</button>
+          <button className="text-button" disabled={busy} onClick={() => onDecision(proposal, "reject")}>{t("暂不执行")}</button>
         </div>
-      ) : proposal.operationId ? <OperationTracker id={proposal.operationId} onExplain={onExplain} /> : null}
+      ) : proposal.status === "stale" || proposal.status === "expired" ? <button type="button" className="ghost-button compact" disabled={busy} onClick={onRecheck}>{busy ? t("正在重新检查…") : t("重新检查并确认")}</button>
+        : proposal.operationId ? <OperationTracker id={proposal.operationId} onExplain={onExplain} /> : null}
     </section>
   );
 }

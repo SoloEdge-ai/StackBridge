@@ -30,23 +30,28 @@ export function ContextPicker({ assistant, context, showProvider = true }: { ass
   const mode = selection.contextMode ?? "auto";
   const provider = (assistant.conversation?.providerId ?? assistant.providerId) === "deepseek" ? "DeepSeek" : "ChatGPT";
   const selectedIds = mode === "auto" ? preview?.attachments?.map((item) => item.commandId) ?? [] : selection.commandIds ?? [];
+  const modeLabel = mode === "auto" ? (zh ? "自动" : "Auto") : mode === "manual" ? (zh ? "手动" : "Manual") : (zh ? "不附带终端" : "No terminal content");
+  const contextLabel = `${zh ? "上下文" : "Context"} ×${preview?.outputCount ?? "…"}`;
+  const summary = `${zh ? "发送至" : "Send to"} ${provider} · ${modeLabel} · ${preview ? `≈ ${(preview.bytes / 1024).toFixed(1)} KiB` : failed ? (zh ? "预览失败" : "preview unavailable") : "…"}`;
   const remove = (id: string) => assistant.setContextSelection({ contextMode: "manual", commandIds: selectedIds.filter((item) => item !== id) });
   return <div className="ask-context-tools">
     <div className="ask-context-heading">
       {showProvider ? <ProviderIdentity assistant={assistant} /> : <span>{zh ? "本条消息" : "This message"}</span>}
-      <button type="button" className="ghost-button compact" aria-expanded={open} onClick={() => setOpen(!open)}>{zh ? "上下文" : "Context"} ×{preview?.outputCount ?? "…"}</button>
+      <button type="button" className="ghost-button compact context-toggle" aria-label={contextLabel} title={summary} aria-expanded={open} onClick={() => setOpen(!open)}>{modeLabel} · {zh ? "终端" : "Terminal"} ×{preview?.outputCount ?? "…"}{preview && preview.outputCount > 0 ? ` · ${(preview.bytes / 1024).toFixed(1)} KiB` : ""}{failed ? " ⚠" : ""}</button>
     </div>
-    <small className="ask-context-summary">{zh ? "发送至" : "Send to"} {provider} · {mode === "auto" ? (zh ? "自动增量" : "Auto · new output") : mode === "manual" ? (zh ? "手动选择" : "Manual selection") : (zh ? "不附带终端内容" : "No terminal content")} · {preview ? `≈ ${(preview.bytes / 1024).toFixed(1)} KiB` : failed ? (zh ? "预览失败" : "preview unavailable") : "…"}</small>
-    {context ? <small className="context-source" title={`${context.environmentStack.map((item) => item.label).join(" → ")} · ${context.cwd}`}>{context.environment.label} · {context.cwd}</small> : null}
+    {context && (preview?.outputCount ?? 0) > 0 ? <small className="context-source" title={`${context.environmentStack.map((item) => item.label).join(" → ")} · ${context.cwd}`}>{context.environment.label}</small> : null}
     {mode !== "none" && selectedIds.length ? <div className="attachment-chips">{selectedIds.map((id) => {
       const command = preview?.commands.find((item) => item.id === id);
       return <button type="button" key={id} disabled={assistant.sending} title={command?.command ?? id} aria-label={`${zh ? "移除附件" : "Remove attachment"}: ${command?.command ?? id}`} onClick={() => remove(id)}><span>{command?.command ?? id}</span> ×</button>;
     })}</div> : null}
-    {preview?.outputCount === 0 && mode === "auto" ? <small>{zh ? "无新增终端上下文" : "No new terminal context"}</small> : null}
+    {preview?.truncated ? <small className="attachment-warning">{zh ? "附件有截断或缺失 · 查看详情" : "Attachments truncated or missing · see details"}</small> : null}
     {assistant.viewedAttachments ? <button type="button" onClick={() => assistant.viewAttachments(undefined)}>{zh ? "退出历史回看" : "Return to draft context"}</button> : null}
     {open ? createPortal(<dialog className="context-dialog" ref={dialogRef} aria-label={zh ? "上下文选择" : "Context selection"} onCancel={(event) => { event.preventDefault(); setOpen(false); }} onClick={(event) => { if (event.target === event.currentTarget) setOpen(false); }}>
       <header><h3>{zh ? "本条消息的终端附件" : "Terminal attachments for this message"}</h3><button type="button" autoFocus aria-label={zh ? "关闭上下文选择" : "Close context selection"} onClick={() => setOpen(false)}>×</button></header>
       <div className="ask-context-popover">
+      <p className="ask-context-summary">{summary}</p>
+      {context ? <p className="context-source">{context.environmentStack.map((item) => item.label).join(" → ")} · {context.cwd}</p> : null}
+      {preview?.outputCount === 0 && mode === "auto" ? <p>{zh ? "无新增终端上下文；已有对话历史仍保留。" : "No new terminal context. Existing conversation history remains."}</p> : null}
       <label>{zh ? "上下文模式" : "Context mode"}<select value={mode} disabled={assistant.sending} onChange={(event) => assistant.setContextSelection({ contextMode: event.target.value as "auto" | "manual" | "none", commandIds: selection.commandIds ?? [] })}>
         <option value="auto">{zh ? "自动：最近 3 条输出" : "Auto: latest 3 outputs"}</option>
         <option value="manual">{zh ? "手动：仅勾选的命令块" : "Manual: selected command blocks"}</option>

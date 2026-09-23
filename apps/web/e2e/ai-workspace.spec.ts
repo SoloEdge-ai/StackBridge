@@ -1,6 +1,11 @@
 import { expect, test, type Route } from "@playwright/test";
 import type { ConversationSnapshot } from "@stackbridge/protocol";
 
+test.afterEach(async ({ page }) => {
+  const terminalId = await page.locator(".terminal-pane-shell.active").getAttribute("data-terminal-session-id").catch(() => null);
+  if (terminalId) await page.request.delete(`/v1/terminal-sessions/${terminalId}`, { headers: { origin: new URL(page.url()).origin } });
+});
+
 test("shares manual attachments and an in-flight turn when moving between Quick Ask and the dock", async ({ page }) => {
   const conversationId = "00000000-0000-4000-8000-000000000101";
   const preparedId = "00000000-0000-4000-8000-000000000911";
@@ -40,10 +45,14 @@ test("shares manual attachments and an in-flight turn when moving between Quick 
   const terminalId = await page.locator(".terminal-pane-shell.active").getAttribute("data-terminal-session-id");
   await page.keyboard.press("F8");
   const quick = page.locator(".inline-assistant");
-  await expect(quick.locator(".context-source")).toBeVisible();
-  await expect(quick.locator(".context-source")).toContainText("Local Windows");
+  await expect(quick.locator(".context-source")).toHaveCount(0);
+  await expect(quick.locator(".ask-context-summary")).toHaveCount(0);
+  await expect(quick.getByRole("button", { name: "Context ×0" })).toContainText("Auto");
+  expect((await quick.boundingBox())!.height).toBeLessThan(155);
   await quick.getByRole("button", { name: /Context ×/ }).click();
   const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Local Windows");
+  await expect(dialog).toContainText("Send to ChatGPT");
   await page.keyboard.press("F8");
   await expect(dialog).toBeVisible();
   await expect(quick).toBeVisible();
@@ -67,6 +76,7 @@ test("shares manual attachments and an in-flight turn when moving between Quick 
   await expect(quick.getByRole("button", { name: "Context ×1" })).toBeVisible();
   await quick.locator("textarea").press("Enter");
   await expect(quick.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(quick.locator(".inline-ai-pending")).toHaveCount(0);
   await expect.poll(() => turns.length).toBe(1);
   await quick.getByRole("button", { name: "Open conversation", exact: true }).click();
   await expect(dock.getByRole("button", { name: "Stop", exact: true })).toBeVisible();

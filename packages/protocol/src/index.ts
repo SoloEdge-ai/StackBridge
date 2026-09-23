@@ -335,6 +335,8 @@ export const deepSeekProviderInputSchema = z.object({
 export type DeepSeekProviderInput = z.infer<typeof deepSeekProviderInputSchema>;
 
 export const commandProposalSchema = z.object({
+  replacesProposalId: z.uuid().optional(),
+  replacementProposalId: z.uuid().optional(),
   schemaVersion: schemaVersion2,
   id: z.uuid(),
   conversationId: z.uuid(),
@@ -365,6 +367,9 @@ export const commandProposalSchema = z.object({
 }).strict();
 
 export type CommandProposal = z.infer<typeof commandProposalSchema>;
+
+// The client cannot substitute a command, terminal, or frozen execution scope.
+export const proposalRecheckRequestSchema = z.object({ schemaVersion: schemaVersion2.optional() }).strict();
 
 export const conversationMessageSchema = z.object({
   contextSnapshot: contextSnapshotSchema.optional(),

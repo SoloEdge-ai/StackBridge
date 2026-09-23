@@ -397,6 +397,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .proposal-target { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; color: #a6abbc; font-size: 12px; }
 .proposal-target span { padding: 2px 5px; border: 1px solid #2b2b33; border-radius: 4px; }
 .proposal-actions { flex-wrap: wrap; margin-top: 10px; }
+.proposal-card .proposal-notice { color: #decda1; font-size: 12px; border-left: 2px solid #89794f; padding-left: 8px; }
 .operation-row { justify-content: flex-end; margin-top: 9px; color: #a6abbc; font-size: 12px; }
 .status-badge { padding: 3px 6px; border-radius: 999px; color: #c0c6d6; background: #292930; font-size: 12px; }
 .status-badge.completed { color: #70dec5; background: #15322d; }
@@ -488,6 +489,9 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .inline-assistant .attachment-chips { flex-wrap: nowrap; overflow-x: auto; }
 .inline-assistant .attachment-chips button { flex-shrink: 0; max-width: 135px; }
 .ask-context-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.context-toggle { flex-shrink: 0; max-width: 65%; white-space: normal; }
+.context-dialog .context-source { white-space: normal; overflow-wrap: anywhere; }
+.attachment-warning { display: block; color: #e8c888; margin-top: 4px; }
 .ask-context-heading > span { overflow-wrap: anywhere; color: #b8baf7; }
 .ask-context-summary { display: block; color: #aeb5c6; margin-top: 6px; font-size: 12px; }
 .context-dialog { width: min(640px, calc(100vw - 32px)); max-height: min(760px, calc(100dvh - 48px)); padding: 0; border: 1px solid #414755; border-radius: 12px; color: #e1e5ee; background: #171a22; box-shadow: 0 24px 80px #0009; }

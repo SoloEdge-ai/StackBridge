@@ -44,9 +44,34 @@ and Core contracts rather than promoting the prototype state machine.
 
 ## Validation and delivery
 
+### Acceptance follow-up: compactness and stale-command recovery
+
+- Keep provider/model visible with one compact mode/count control. Show a short
+  terminal source and size only when attaching terminal blocks. Put full paths,
+  destination details and the zero-new-output explanation inside the context modal.
+  Keep truncation/missing-content warnings visible. Retain 14px body / 12px metadata.
+- Do not repeat the pending question below the Quick Ask input. Dragging preserves
+  content-driven height; explicit resize may set a height. Restore compact removes
+  the custom size while keeping fixed placement and the draft/attachment selection.
+- Approval failures belong on the affected command card, not the chat-wide error
+  banner. A stale/expired card offers Recheck for confirmation.
+- `POST /v1/approvals/:id/recheck` accepts no command or target overrides. Core
+  checks the original terminal, frame, binding, cwd, shell and user, write lease,
+  verification, idle state and empty input. It never retargets to the focused pane.
+- Recheck creates a new pending proposal and AgentSession with freshly frozen
+  versions, linked to the immutable original. It does not call the model or write
+  to the PTY. A separate explicit execute/insert decision is required and revalidates
+  the frozen scope again. Already submitted/inserted/rejected proposals cannot renew.
+- Persist the replacement chain atomically; repeated recheck of the original
+  returns the same replacement, never extra executable copies. Restoring history
+  after restart does not restore a missing terminal or execution authority.
+- Keep strict context/input version checks; this change adds a recovery path, not
+  a bypass. Show the replacement in its original message card, with a review notice.
+
 Use the established browser UI seam for view handoff, attachment removal,
 in-flight requests, width persistence/bounds, Markdown, Escape/F8, real PTY input
-and pane switching. Keep the existing Core HTTP tests unchanged and run full tests,
+and pane switching. Add Core HTTP checks for recheck, identity/lease/readiness
+guards, separate final approval, idempotency and persisted replacement chains; run full tests,
 typecheck, build and Windows portable packaging. Review against the main baseline
 `1e00950c6de7b2c922e52ab33829d0cc3099e5ed`.
 

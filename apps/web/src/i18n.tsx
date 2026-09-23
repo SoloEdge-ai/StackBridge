@@ -12,6 +12,16 @@ export type Locale = "en" | "zh-CN";
 const localeStorageKey = "stackbridge.locale";
 
 const english = {
+  "终端状态已变化。重新检查原终端后，才能再次确认执行。": "Terminal state changed. Recheck the original terminal before confirming again.",
+  "已重新检查。请核对命令与原执行目标，再确认执行。": "Rechecked. Review the command and original target, then confirm.",
+  "正在重新检查…": "Rechecking…",
+  "重新检查并确认": "Recheck for confirmation",
+  "原执行目标或目录已变化。请回到原环境，或让 AI 生成新的建议。": "The original target or directory changed. Return to the original environment or ask AI for a new suggestion.",
+  "原终端需处于已验证、空闲且输入行为空的状态。请准备好后重试。": "The original terminal must be verified, idle, and have an empty input line. Prepare it and retry.",
+  "此建议已处理，不能再次生成执行授权。": "This suggestion has already been handled and cannot be reauthorized.",
+  "此建议已过期。请重新检查并确认。": "This suggestion expired. Recheck it before confirming.",
+  "请在原终端取得写入权限后重试。": "Acquire the write lease in the original terminal and retry.",
+  "原终端已不可用。请让 AI 为当前终端生成新的建议。": "The original terminal is unavailable. Ask AI for a new suggestion for the current terminal.",
   "上下文预览已过期，请检查刷新后的范围并重新发送。": "Context preview expired. Check the refreshed selection and send again.",
   "上下文预览暂时已达容量上限，请稍后刷新重试。": "Context preview capacity reached. Refresh and retry shortly.",
   "上下文不属于当前对话或终端，请重新选择。": "Context does not belong to this conversation or terminal. Select it again.",

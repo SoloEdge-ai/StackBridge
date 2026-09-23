@@ -61,6 +61,9 @@ export interface AssistantController {
   clearDeepSeek(): Promise<void>;
   send(text?: string, commandIds?: string[], terminalIdOverride?: string): Promise<void>;
   decide(proposal: CommandProposal, decision: ApprovalDecision): Promise<void>;
+  recheck(proposal: CommandProposal): Promise<void>;
+  proposalErrors: Record<string, string | undefined>;
+  proposalBusy: Record<string, boolean>;
   stop(): void;
 }
 
@@ -103,6 +106,9 @@ export function useAssistantController(terminalId: string, terminalContext?: Ter
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const [errorTerminalId, setErrorTerminalId] = useState<string>();
+  const [proposalErrors, setProposalErrors] = useState<Record<string, string | undefined>>({});
+  const [proposalBusy, setProposalBusy] = useState<Record<string, boolean>>({});
+  const activeProposalRequests = useRef(new Set<string>());
   const [loginId, setLoginId] = useState<string>();
   const turnRequestVersion = useRef(0);
   const activeTurnConversationId = useRef<string | undefined>(undefined);
@@ -308,27 +314,35 @@ export function useAssistantController(terminalId: string, terminalContext?: Ter
     }
   }
 
-  async function decide(proposal: CommandProposal, decision: ApprovalDecision) {
-    setError(undefined);
-    setErrorTerminalId(undefined);
+  async function updateProposal(proposal: CommandProposal, action: ApprovalDecision | "recheck") {
+    if (activeProposalRequests.current.has(proposal.id)) return;
+    activeProposalRequests.current.add(proposal.id);
+    setProposalBusy((current) => ({ ...current, [proposal.id]: true }));
+    setProposalErrors((current) => ({ ...current, [proposal.id]: undefined }));
     try {
-      const result = await api<{ proposal: CommandProposal }>(`/v1/approvals/${proposal.id}/decision`, {
+      const result = await api<{ proposal: CommandProposal }>(`/v1/approvals/${proposal.id}/${action === "recheck" ? "recheck" : "decision"}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 2, decision }),
+        body: JSON.stringify(action === "recheck" ? { schemaVersion: 2 } : { schemaVersion: 2, decision: action }),
       }, t);
-      setConversation((current) => current && ({
+      setConversation((current) => current?.id === proposal.conversationId ? ({
         ...current,
-        proposals: current.proposals.map((item) => item.id === proposal.id ? result.proposal : item),
-      }));
-      if (decision === "insert") window.dispatchEvent(new Event("stackbridge:terminal-focus"));
+        proposals: action === "recheck"
+          ? [...current.proposals.filter((item) => item.id !== result.proposal.id).map((item) => item.id === proposal.id ? { ...item, replacementProposalId: result.proposal.id } : item), result.proposal]
+          : current.proposals.map((item) => item.id === proposal.id ? result.proposal : item),
+      }) : current);
+      if (action === "insert") window.dispatchEvent(new Event("stackbridge:terminal-focus"));
+      await refreshConversations();
     } catch (reason) {
-      setError(errorMessage(reason, t));
-      setErrorTerminalId(proposal.terminalSessionId);
-      if (conversation) {
-        const refreshed = await api<ConversationSnapshot>(`/v1/conversations/${conversation.id}`, undefined, t);
-        setConversation(refreshed);
-      }
+      setProposalErrors((current) => ({ ...current, [proposal.id]: errorMessage(reason, t) }));
+      try {
+        const refreshed = await api<ConversationSnapshot>(`/v1/conversations/${proposal.conversationId}`, undefined, t);
+        setConversation((current) => current?.id === refreshed.id ? refreshed : current);
+        setConversations((current) => current.map((item) => item.id === refreshed.id ? refreshed : item));
+      } catch { /* Keep the card and its actionable error when refreshing is unavailable. */ }
+    } finally {
+      activeProposalRequests.current.delete(proposal.id);
+      setProposalBusy((current) => ({ ...current, [proposal.id]: false }));
     }
   }
 
@@ -418,7 +432,10 @@ export function useAssistantController(terminalId: string, terminalContext?: Ter
     saveDeepSeek,
     clearDeepSeek,
     send,
-    decide,
+    decide: (proposal, decision) => updateProposal(proposal, decision),
+    recheck: (proposal) => updateProposal(proposal, "recheck"),
+    proposalErrors,
+    proposalBusy,
     stop() {
       const conversationId = activeTurnConversationId.current ?? conversation?.id;
       turnRequestVersion.current += 1;
