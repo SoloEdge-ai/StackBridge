@@ -336,6 +336,7 @@ test("highlights whole command blocks and supports range dragging and a movable 
   await expect.poll(async () => (await quick.boundingBox())!.width).toBeCloseTo(resized!.width, 0);
   await page.screenshot({ path: resolve(screenshotDirectory, "terminal-context-highlights.png") });
   await quick.getByRole("button", { name: "Restore compact" }).click();
+  await expect.poll(async () => (await quick.locator("textarea").boundingBox())!.height).toBeLessThanOrEqual(32);
   await expect(quick).toHaveAttribute("data-placement", "fixed");
   await expect.poll(async () => (await quick.boundingBox())!.height).toBeLessThan(resized!.height - 40);
   await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();

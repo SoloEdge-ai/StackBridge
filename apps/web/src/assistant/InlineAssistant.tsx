@@ -131,8 +131,8 @@ export function InlineAssistant({
     const input = inputRef.current;
     if (!input) return;
     input.style.height = "30px";
-    input.style.height = `${Math.min(66, Math.max(30, input.scrollHeight))}px`;
-  }, [assistant.message]);
+    input.style.height = `${assistant.message ? Math.min(66, Math.max(30, input.scrollHeight)) : 30}px`;
+  }, [assistant.message, assistant.providerReady, anchor.width, floating.style.width, floating.style.height]);
 
   const placementProps = {
     ref: rootRef,

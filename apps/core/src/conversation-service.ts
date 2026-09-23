@@ -399,8 +399,7 @@ export class ConversationService {
     if (!terminal) throw new ConversationTerminalNotFoundError();
     const current = terminal.context();
     const scope = original.scope;
-    if (current.environment.id !== scope.environmentFrameId || current.environment.bindingId !== scope.bindingId
-      || current.cwd !== scope.cwd || current.shell !== scope.shell || current.user !== original.proposal.user) {
+    if (!matchesFrozenTarget(current, scope) || current.user !== original.proposal.user) {
       throw new ProposalRecheckError("proposal_target_changed");
     }
     const renewedScope: ApprovedCommandRequest = { ...scope, operationId: "", contextVersion: current.contextVersion, inputVersion: current.inputVersion };
@@ -558,16 +557,23 @@ export type TerminalAssistant = AgentEngine;
 /** @deprecated Use AgentEngineContext. */
 export type TerminalAssistantContext = AgentEngineContext;
 
+function matchesFrozenTarget(
+  context: TerminalContext,
+  scope: ApprovedCommandRequest,
+): boolean {
+  return context.terminalSessionId === scope.terminalSessionId
+    && context.environment.id === scope.environmentFrameId
+    && context.environment.bindingId === scope.bindingId
+    && context.cwd === scope.cwd
+    && context.shell === scope.shell;
+}
+
 function assertFrozenScope(
   context: TerminalContext,
   scope: ApprovedCommandRequest,
 ): void {
   if (
-    context.terminalSessionId !== scope.terminalSessionId ||
-    context.environment.id !== scope.environmentFrameId ||
-    context.environment.bindingId !== scope.bindingId ||
-    context.cwd !== scope.cwd ||
-    context.shell !== scope.shell ||
+    !matchesFrozenTarget(context, scope) ||
     context.contextVersion !== scope.contextVersion ||
     context.inputVersion !== scope.inputVersion
   ) throw new Error("Terminal context changed; confirm the command again");
