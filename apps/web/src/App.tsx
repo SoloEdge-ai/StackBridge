@@ -180,6 +180,8 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   }, [addTerminal, t, tabs.length]);
 
   const toggleQuickAsk = useCallback(() => {
+    // Both desktop and browser shortcuts must leave a modal's focus intact.
+    if (document.querySelector("dialog[open]")) return;
     const tab = tabs.find((item) => item.id === activeId);
     const pane = tab
       ? findPane(tab.layout, tab.activePaneId) ?? flattenPanes(tab.layout)[0]

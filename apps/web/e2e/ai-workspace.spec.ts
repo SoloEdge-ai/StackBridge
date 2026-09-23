@@ -40,8 +40,13 @@ test("shares manual attachments and an in-flight turn when moving between Quick 
   const terminalId = await page.locator(".terminal-pane-shell.active").getAttribute("data-terminal-session-id");
   await page.keyboard.press("F8");
   const quick = page.locator(".inline-assistant");
+  await expect(quick.locator(".context-source")).toBeVisible();
+  await expect(quick.locator(".context-source")).toContainText("Local Windows");
   await quick.getByRole("button", { name: /Context ×/ }).click();
   const dialog = page.getByRole("dialog");
+  await page.keyboard.press("F8");
+  await expect(dialog).toBeVisible();
+  await expect(quick).toBeVisible();
   await dialog.getByLabel("Context mode").selectOption("manual");
   await dialog.getByLabel("echo ATTACH_ME", { exact: true }).check();
   await page.keyboard.press("Escape");

@@ -5,6 +5,16 @@ Quick Ask handles short questions and a bounded reply preview. Both are views of
 the same conversation, not independent agents. This follows the user discussion
 and [competitor research](../research/TERMINAL_AI_COMPETITORS_2026-09.md).
 
+## Prototype decision
+
+On 2026-09-23 the user approved continuing from variant A, the right companion
+panel. The original three-variant interactive prototype is archived on the
+[throwaway prototype branch](https://github.com/SoloEdge-ai/StackBridge/tree/codex/ai-workspace-prototype/apps/web/prototype)
+at `554a9da`. It is a primary design reference, not production code. Variant B
+(bottom workspace), variant C (conversation-focused workspace), and all simulated
+requests stay out of main. Rebuild A using the existing shared assistant controller
+and Core contracts rather than promoting the prototype state machine.
+
 ## Scope and invariants
 
 - One visible composer at a time. Open conversation / Read full answer moves from

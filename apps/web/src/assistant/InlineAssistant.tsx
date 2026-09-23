@@ -184,7 +184,7 @@ export function InlineAssistant({
               void assistant.send();
             }
           }}
-          placeholder={t("问当前命令、输出或下一步…")}
+          placeholder={locale === "zh-CN" ? "询问当前终端…" : "Ask about this terminal…"}
           disabled={turnPendingHere}
           rows={1}
         />

@@ -269,6 +269,7 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await expect(quickAsk.locator("textarea")).toHaveValue("Keep this draft and its attachments");
   await quickAsk.getByRole("button", { name: "Open conversation", exact: true }).click();
   await expect.poll(async () => (await dock.boundingBox())!.width).toBeCloseTo(resizedWidth, 0);
+  await expect(dock.locator(".message.assistant").last().getByText("DeepSeek routed answer 3")).toBeInViewport();
   await page.screenshot({ path: resolve(screenshotDirectory, "ai-workspace-docked.png") });
   await page.setViewportSize({ width: 800, height: 700 });
   await expect.poll(async () => (await dock.boundingBox())!.width).toBeLessThan(740);
