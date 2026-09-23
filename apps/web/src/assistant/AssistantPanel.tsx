@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ContextPicker } from "./ContextPicker.js";
+import { ContextPicker, ProviderIdentity } from "./ContextPicker.js";
 import { AssistantMarkdown } from "./AssistantMarkdown.js";
 import { MessageAttachments } from "./MessageAttachments.js";
 import {
@@ -23,14 +23,17 @@ export function AssistantPanel({
   context,
   shortcut,
   onClose,
+  onQuickAsk,
 }: {
   assistant: AssistantController;
   context: TerminalContext | undefined;
   shortcut: string;
   onClose(): void;
+  onQuickAsk(): void;
 }) {
   const { locale, t } = useLanguage();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [editingDeepSeek, setEditingDeepSeek] = useState(false);
   const {
     account,
@@ -51,6 +54,7 @@ export function AssistantPanel({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [conversation, pendingMessage]);
+  useEffect(() => { if (assistant.providerReady) inputRef.current?.focus(); }, [assistant.providerReady]);
 
   if (!activeProvider || (providerId === "chatgpt" && !account)) {
     return <aside className="assistant-panel loading-panel"><PanelHeader title={t("AI 助手")} subtitle={shortcut} onClose={onClose} /><CenteredStatus message={t("正在连接 AI 提供方…")} /></aside>;
@@ -113,6 +117,16 @@ export function AssistantPanel({
   return (
     <aside className="assistant-panel">
       <PanelHeader title={t("AI 助手")} subtitle={providerId === "chatgpt" ? account?.accountLabel ?? shortcut : "DeepSeek API"} onClose={onClose} />
+      <div className="conversation-toolbar">
+      <button type="button" className="back-to-quick" onClick={onQuickAsk}>{locale === "zh-CN" ? "返回 Quick Ask" : "Back to Quick Ask"}</button>
+      <button className="ghost-button compact" onClick={assistant.newConversation} disabled={sending}>＋ {t("新对话")}</button>
+      {conversations.length ? <select aria-label={t("历史对话")} className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)} disabled={sending}>
+        <option value="">{t("历史对话")}</option>
+        {conversations.map((item) => <option key={item.id} value={item.id}>[{item.providerId === "deepseek" ? "DeepSeek" : "ChatGPT"}] {localizedConversationTitle(item.title, locale)}</option>)}
+      </select> : null}
+      </div>
+      <details className="model-settings">
+      <summary><ProviderIdentity assistant={assistant} /><span>{locale === "zh-CN" ? "模型与连接" : "Model & connection"}</span></summary>
       <ProviderSwitcher
         providers={providers}
         value={providerId}
@@ -130,25 +144,9 @@ export function AssistantPanel({
           </select>
         )}
         <datalist id="deepseek-models">{models.map((item) => <option key={item.model} value={item.model}>{item.displayName}</option>)}</datalist>
-        <button className="ghost-button compact" onClick={assistant.newConversation} disabled={sending}>＋ {t("新对话")}</button>
         {providerId === "deepseek" && !conversation ? <button className="text-button provider-configure" onClick={() => setEditingDeepSeek(true)}>{t("配置 DeepSeek")}</button> : null}
-        {conversations.length ? (
-          <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)} disabled={sending}>
-            <option value="">{t("历史对话")}</option>
-            {conversations.map((item) => <option key={item.id} value={item.id}>[{item.providerId === "deepseek" ? "DeepSeek" : "ChatGPT"}] {localizedConversationTitle(item.title, locale)}</option>)}
-          </select>
-        ) : null}
       </div>
-      <ContextPicker assistant={assistant} context={context} />
-      <div className="context-chip-row">
-        <span className={`context-chip ${context?.environment.verified === false ? "warning" : ""}`}>{context ? localizedEnvironmentLabel(context.environment.label, context.environment.kind, locale) : t("识别环境中")}</span>
-        <details className="context-preview"><summary>{t("检查上下文")}</summary><pre>{JSON.stringify({
-          environment: context?.environment,
-          cwd: context?.cwd,
-          shell: context?.shell,
-          selection: assistant.contextSelection,
-        }, null, 2)}</pre></details>
-      </div>
+      </details>
       <div className="message-list" ref={scrollRef}>
         {!conversation?.messages.length ? (
           <div className="conversation-empty">
@@ -177,7 +175,9 @@ export function AssistantPanel({
       </div>
       {error ? <div className="panel-error">{error}</div> : null}
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void assistant.send(); }}>
+        <ContextPicker assistant={assistant} context={context} showProvider={false} />
         <textarea
+          ref={inputRef}
           value={message}
           onChange={(event) => assistant.setMessage(event.target.value)}
           onKeyDown={(event) => {

@@ -1,0 +1,44 @@
+# AI workspace redesign
+
+Approved direction: keep the full conversation in a stable, resizable AI panel;
+Quick Ask handles short questions and a bounded reply preview. Both are views of
+the same conversation, not independent agents. This follows the user discussion
+and [competitor research](../research/TERMINAL_AI_COMPETITORS_2026-09.md).
+
+## Scope and invariants
+
+- One visible composer at a time. Open conversation / Read full answer moves from
+  Quick Ask to the dock; Back to Quick Ask returns to the active terminal pane.
+- Switching views preserves that pane's unsent draft, attachment selection,
+  provider/model lock, conversation history and pending request. It neither creates
+  a new conversation nor submits another turn.
+- Conversation continuity across terminal panes remains. Each pane retains its own
+  draft and per-message attachment choice; successful-delivery deduplication and
+  Core's frozen execution/approval scope are unchanged.
+- The dock has a draggable divider, keyboard width adjustment, a remembered width,
+  and bounded placement on smaller windows. It is closed by default.
+- Full replies use the existing safe Markdown renderer in one conversation scroll
+  area. Quick Ask displays a bounded, non-scrolling reply preview and an explicit
+  full-answer entry. Suggested commands are reviewed/approved in the full panel.
+- Provider/model remain visible; connection/model settings are collapsed until
+  requested. History and new-conversation actions stay accessible.
+- Current-message attachments sit beside the composer: mode, provider destination,
+  approximate size, terminal source and removable command chips. Detailed selection
+  opens a separate modal, shared by both views, without nesting scroll areas in
+  the small Quick Ask. Escape dismisses that modal only; IME input is not intercepted.
+- Terminal highlights continue to mean only this message's terminal attachment,
+  not full conversation history. Removing an automatic chip switches to an explicit
+  manual selection of the remaining blocks.
+- Improve readability (14px AI body, 12px primary metadata), spacing and controls;
+  avoid changing terminal font settings or adding provider/API capabilities.
+
+## Validation and delivery
+
+Use the established browser UI seam for view handoff, attachment removal,
+in-flight requests, width persistence/bounds, Markdown, Escape/F8, real PTY input
+and pane switching. Keep the existing Core HTTP tests unchanged and run full tests,
+typecheck, build and Windows portable packaging. Review against the main baseline
+`1e00950c6de7b2c922e52ab33829d0cc3099e5ed`.
+
+Deliver a PR and a local preview EXE for acceptance, without automatic merge.
+Do not close a user's existing app or terminal sessions without permission.
