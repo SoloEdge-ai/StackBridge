@@ -32,6 +32,7 @@ export interface ConversationPersistence {
   saveConversation(snapshot: ConversationSnapshot): void;
   saveProposal(proposal: CommandProposal, scope: ApprovedCommandRequest): void;
   saveOperation(operation: OperationSnapshot): void;
+  replaceProposal(original: StoredFrozenProposal, replacement: StoredFrozenProposal, conversation: ConversationSnapshot): void;
   reserveOperation(
     proposal: CommandProposal,
     scope: ApprovedCommandRequest,
@@ -233,6 +234,19 @@ export class WorkspaceStore implements ConversationPersistence {
     try {
       this.saveProposal(proposal, scope);
       this.saveOperation(operation);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  replaceProposal(original: StoredFrozenProposal, replacement: StoredFrozenProposal, conversation: ConversationSnapshot): void {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.saveProposal(original.proposal, original.scope);
+      this.saveProposal(replacement.proposal, replacement.scope);
+      this.saveConversation(conversation);
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");

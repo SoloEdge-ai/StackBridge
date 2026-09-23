@@ -387,6 +387,40 @@ export class ConversationService {
     }
   }
 
+  recheck(proposalId: string): { proposal: CommandProposal } {
+    const original = this.requireProposal(proposalId);
+    if (original.proposal.replacementProposalId) {
+      return { proposal: this.proposal(original.proposal.replacementProposalId) };
+    }
+    if (original.proposal.operationId || !["stale", "expired"].includes(original.proposal.status)) {
+      throw new ProposalRecheckError("proposal_recheck_not_allowed");
+    }
+    const terminal = this.terminals.get(original.scope.terminalSessionId);
+    if (!terminal) throw new ConversationTerminalNotFoundError();
+    const current = terminal.context();
+    const scope = original.scope;
+    if (!matchesFrozenTarget(current, scope) || current.user !== original.proposal.user) {
+      throw new ProposalRecheckError("proposal_target_changed");
+    }
+    const renewedScope: ApprovedCommandRequest = { ...scope, operationId: "", contextVersion: current.contextVersion, inputVersion: current.inputVersion };
+    try { terminal.validateApproved(renewedScope); }
+    catch { throw new ProposalRecheckError("proposal_terminal_not_ready"); }
+    const now = this.now();
+    const proposal: CommandProposal = { ...original.proposal, id: randomUUID(), agentSessionId: randomUUID(),
+      createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + proposalLifetimeMs).toISOString(),
+      status: "pending", replacesProposalId: original.proposal.id };
+    const replaced = { ...original.proposal, replacementProposalId: proposal.id };
+    const conversation = this.requireConversation(proposal.conversationId);
+    const snapshot: ConversationSnapshot = { ...conversation.snapshot, updatedAt: now.toISOString(),
+      proposals: [...conversation.snapshot.proposals.map((item) => item.id === replaced.id ? replaced : item), proposal] };
+    // Persist the link and both frozen scopes atomically, before publishing in-memory state.
+    this.persistence?.replaceProposal({ proposal: replaced, scope }, { proposal, scope: renewedScope }, snapshot);
+    this.proposals.set(replaced.id, { proposal: replaced, scope });
+    conversation.snapshot = snapshot;
+    this.proposals.set(proposal.id, { proposal, scope: renewedScope });
+    return { proposal: clone(proposal) };
+  }
+
   operation(id: string): OperationSnapshot | undefined {
     const stored = this.operations.get(id);
     if (stored === undefined) return undefined;
@@ -449,6 +483,10 @@ export class ConversationService {
       this.persistence?.saveConversation(conversation.snapshot);
     }
   }
+}
+
+export class ProposalRecheckError extends Error {
+  constructor(readonly code: "proposal_recheck_not_allowed" | "proposal_target_changed" | "proposal_terminal_not_ready") { super(code); }
 }
 
 export function buildAssistantContext(
@@ -519,16 +557,23 @@ export type TerminalAssistant = AgentEngine;
 /** @deprecated Use AgentEngineContext. */
 export type TerminalAssistantContext = AgentEngineContext;
 
+function matchesFrozenTarget(
+  context: TerminalContext,
+  scope: ApprovedCommandRequest,
+): boolean {
+  return context.terminalSessionId === scope.terminalSessionId
+    && context.environment.id === scope.environmentFrameId
+    && context.environment.bindingId === scope.bindingId
+    && context.cwd === scope.cwd
+    && context.shell === scope.shell;
+}
+
 function assertFrozenScope(
   context: TerminalContext,
   scope: ApprovedCommandRequest,
 ): void {
   if (
-    context.terminalSessionId !== scope.terminalSessionId ||
-    context.environment.id !== scope.environmentFrameId ||
-    context.environment.bindingId !== scope.bindingId ||
-    context.cwd !== scope.cwd ||
-    context.shell !== scope.shell ||
+    !matchesFrozenTarget(context, scope) ||
     context.contextVersion !== scope.contextVersion ||
     context.inputVersion !== scope.inputVersion
   ) throw new Error("Terminal context changed; confirm the command again");

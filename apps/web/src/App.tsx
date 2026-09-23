@@ -33,6 +33,7 @@ import {
   useAssistantController,
 } from "./assistant/use-assistant-controller.js";
 import { AssistantPanel } from "./assistant/AssistantPanel.js";
+import { AssistantDock } from "./assistant/AssistantDock.js";
 import { ConnectionDialog, SettingsDialog } from "./workspace/WorkspaceDialogs.js";
 import {
   TerminalContextMenu,
@@ -51,6 +52,10 @@ import {
 const shortcutStorageKey = "stackbridge.aiShortcut";
 
 type AuthState = "checking" | "unavailable" | "authenticated";
+
+function hasOpenModal(): boolean {
+  return document.querySelector("dialog[open]") !== null;
+}
 
 export function App() {
   const { t } = useLanguage();
@@ -179,6 +184,8 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
   }, [addTerminal, t, tabs.length]);
 
   const toggleQuickAsk = useCallback(() => {
+    // Both desktop and browser shortcuts must leave a modal's focus intact.
+    if (hasOpenModal()) return;
     const tab = tabs.find((item) => item.id === activeId);
     const pane = tab
       ? findPane(tab.layout, tab.activePaneId) ?? flattenPanes(tab.layout)[0]
@@ -187,6 +194,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       setQuickAiPaneId(undefined);
       window.dispatchEvent(new Event("stackbridge:terminal-focus"));
     } else if (pane) {
+      setAiOpen(false);
       setQuickAiPaneId(pane.id);
     }
   }, [activeId, quickAiPaneId, tabs]);
@@ -195,6 +203,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (event.isComposing || hasOpenModal()) return;
       if (event.key === "Escape" && quickAiPaneId) {
         setQuickAiPaneId(undefined);
         window.dispatchEvent(new Event("stackbridge:terminal-focus"));
@@ -432,7 +441,7 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
         <button className="rail-button" title={t("新建连接")} aria-label={t("新建连接")} onClick={() => setConnectionOpen(true)}>
           <AppIcon name="connection" />
         </button>
-        <button className={`rail-button ${aiOpen ? "active" : ""}`} title={t("AI 助手")} aria-label={t("AI 助手")} onClick={() => setAiOpen((value) => !value)}>
+        <button className={`rail-button ${aiOpen ? "active" : ""}`} title={t("AI 助手")} aria-label={t("AI 助手")} onClick={() => { setQuickAiPaneId(undefined); setAiOpen((value) => !value); }}>
           <AppIcon name="spark" />
         </button>
         <div className="rail-spacer" />
@@ -510,15 +519,18 @@ function Workspace({ onAuthenticationLost }: { onAuthenticationLost: () => void 
       </section>
 
       {aiOpen && activePane ? (
+        <AssistantDock>
         <AssistantPanel
           assistant={assistant}
           context={context}
           shortcut={shortcut}
+          onQuickAsk={() => { setAiOpen(false); setQuickAiPaneId(activePane.id); }}
           onClose={() => {
             setAiOpen(false);
             window.dispatchEvent(new Event("stackbridge:terminal-focus"));
           }}
         />
+        </AssistantDock>
       ) : null}
 
       {splitMenu ? (

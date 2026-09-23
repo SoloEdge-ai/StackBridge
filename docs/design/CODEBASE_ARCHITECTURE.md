@@ -16,6 +16,7 @@ The product is organized around three stable boundaries. UI composition may chan
 - `terminal/TerminalPane.tsx` owns one xterm/WebSocket attachment. It validates terminal context with the shared protocol schema and blocks the configured Quick Ask shortcut from entering the PTY byte stream.
 - `desktop/quick-ask-shortcut.ts` owns desktop bridge registration, browser fallback, and IME coordination.
 - `assistant/use-assistant-controller.ts` owns conversations, drafts, turns, approvals, and cancellation. Full history lives in `assistant/AssistantPanel.tsx`; cursor-anchored interaction lives in `assistant/InlineAssistant.tsx`.
+- `assistant/AssistantDock.tsx` owns only panel width and its resize interactions. Both assistant views use `ContextPicker.tsx` for current-message attachments and a separate selection dialog; neither view owns another conversation controller.
 - `workspace/WorkspaceDialogs.tsx` owns connection and settings forms. API error normalization lives in `api/client.ts`.
 
 ## Core

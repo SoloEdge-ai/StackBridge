@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 
 import { localizedEnvironmentLabel, useLanguage } from "../i18n.js";
 import type { TerminalContext, TerminalCursorAnchor } from "../terminal/types.js";
-import { ProposalCard } from "./AssistantPanel.js";
 import { ContextPicker } from "./ContextPicker.js";
 import { AssistantMarkdown } from "./AssistantMarkdown.js";
 import { useFloatingAssistant } from "./use-floating-assistant.js";
@@ -132,8 +131,8 @@ export function InlineAssistant({
     const input = inputRef.current;
     if (!input) return;
     input.style.height = "30px";
-    input.style.height = `${Math.min(66, Math.max(30, input.scrollHeight))}px`;
-  }, [assistant.message]);
+    input.style.height = `${assistant.message ? Math.min(66, Math.max(30, input.scrollHeight)) : 30}px`;
+  }, [assistant.message, assistant.providerReady, anchor.width, floating.style.width, floating.style.height]);
 
   const placementProps = {
     ref: rootRef,
@@ -162,6 +161,8 @@ export function InlineAssistant({
     <section {...placementProps} className="inline-assistant" aria-label={t("快速询问 AI")}>
       <div className="quick-ask-drag-bar" aria-label="Move Quick Ask" onPointerDown={(event) => floating.begin(event, "move")}>
         <span>⠿ Quick Ask</span>
+        <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={onOpenHistory}>{locale === "zh-CN" ? "展开对话" : "Open conversation"}</button>
+        {floating.fixed ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={floating.compact}>{locale === "zh-CN" ? "恢复紧凑" : "Restore compact"}</button> : null}
         {floating.fixed ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={floating.reset}>{locale === "zh-CN" ? "返回光标旁" : "Follow cursor"}</button> : null}
       </div>
       <ContextPicker assistant={assistant} context={context} />
@@ -184,7 +185,7 @@ export function InlineAssistant({
               void assistant.send();
             }
           }}
-          placeholder={t("问当前命令、输出或下一步…")}
+          placeholder={locale === "zh-CN" ? "询问当前终端…" : "Ask about this terminal…"}
           disabled={turnPendingHere}
           rows={1}
         />
@@ -196,24 +197,16 @@ export function InlineAssistant({
         <div className="inline-ai-response">
           <div className="message-role">
             <span>AI</span>
-            <button type="button" className="inline-history-button" aria-label={t("历史与详情")} title={t("历史与详情")} onClick={onOpenHistory}>↗</button>
           </div>
+          <div className="inline-answer-preview">
           <AssistantMarkdown content={latestAssistantMessage.content} />
-          {proposals.map((proposal) => (
-            <ProposalCard
-              key={proposal.id}
-              proposal={proposal}
-              onDecision={(item, decision) => void assistant.decide(item, decision)}
-              onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])}
-            />
-          ))}
+          </div>
+          <button type="button" className="read-full-answer" onClick={onOpenHistory}>{locale === "zh-CN" ? "阅读完整回复" : "Read full answer"} ↗</button>
+          {proposals.length ? <button type="button" className="review-commands" onClick={onOpenHistory}>{locale === "zh-CN" ? `查看 ${proposals.length} 条命令建议` : `Review ${proposals.length} suggested commands`}</button> : null}
         </div>
       ) : null}
-      {assistant.pendingMessage && assistant.pendingTerminalId === context?.terminalSessionId
-        ? <div className="inline-ai-pending">{assistant.pendingMessage}</div>
-        : null}
       {turnPendingHere
-        ? <div className="thinking"><span /><span /><span /> {t("AI 正在分析当前终端…")}</div>
+        ? <div className="thinking" title={assistant.pendingMessage}><span /><span /><span /> {t("AI 正在分析当前终端…")}</div>
         : null}
       {assistant.error && assistant.errorTerminalId === context?.terminalSessionId
         ? <div className="panel-error">{assistant.error}</div>

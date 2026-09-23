@@ -15,6 +15,13 @@ export async function api<T>(url: string, init: RequestInit | undefined, t: Tran
 export function apiError(payload: Record<string, unknown>, fallback: string, t: Translate): string {
   if (typeof payload.error !== "string") return fallback;
   const messages: Record<string, MessageKey> = {
+    proposal_stale: "终端状态已变化。重新检查原终端后，才能再次确认执行。",
+    proposal_expired: "此建议已过期。请重新检查并确认。",
+    proposal_target_changed: "原执行目标或目录已变化。请回到原环境，或让 AI 生成新的建议。",
+    proposal_terminal_not_ready: "原终端需处于已验证、空闲且输入行为空的状态。请准备好后重试。",
+    proposal_recheck_not_allowed: "此建议已处理，不能再次生成执行授权。",
+    proposal_target_unavailable: "原终端已不可用。请让 AI 为当前终端生成新的建议。",
+    write_lease_required: "请在原终端取得写入权限后重试。",
     context_preparation_expired: "上下文预览已过期，请检查刷新后的范围并重新发送。",
     context_preparation_capacity: "上下文预览暂时已达容量上限，请稍后刷新重试。",
     context_preparation_mismatch: "上下文不属于当前对话或终端，请重新选择。",

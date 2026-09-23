@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ContextPicker } from "./ContextPicker.js";
+import { ContextPicker, ProviderIdentity } from "./ContextPicker.js";
 import { AssistantMarkdown } from "./AssistantMarkdown.js";
 import { MessageAttachments } from "./MessageAttachments.js";
 import {
@@ -23,14 +23,17 @@ export function AssistantPanel({
   context,
   shortcut,
   onClose,
+  onQuickAsk,
 }: {
   assistant: AssistantController;
   context: TerminalContext | undefined;
   shortcut: string;
   onClose(): void;
+  onQuickAsk(): void;
 }) {
   const { locale, t } = useLanguage();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [editingDeepSeek, setEditingDeepSeek] = useState(false);
   const {
     account,
@@ -51,6 +54,7 @@ export function AssistantPanel({
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [conversation, pendingMessage]);
+  useEffect(() => { if (assistant.providerReady) inputRef.current?.focus(); }, [assistant.providerReady]);
 
   if (!activeProvider || (providerId === "chatgpt" && !account)) {
     return <aside className="assistant-panel loading-panel"><PanelHeader title={t("AI 助手")} subtitle={shortcut} onClose={onClose} /><CenteredStatus message={t("正在连接 AI 提供方…")} /></aside>;
@@ -113,6 +117,16 @@ export function AssistantPanel({
   return (
     <aside className="assistant-panel">
       <PanelHeader title={t("AI 助手")} subtitle={providerId === "chatgpt" ? account?.accountLabel ?? shortcut : "DeepSeek API"} onClose={onClose} />
+      <div className="conversation-toolbar">
+      <button type="button" className="back-to-quick" onClick={onQuickAsk}>{locale === "zh-CN" ? "返回 Quick Ask" : "Back to Quick Ask"}</button>
+      <button className="ghost-button compact" onClick={assistant.newConversation} disabled={sending}>＋ {t("新对话")}</button>
+      {conversations.length ? <select aria-label={t("历史对话")} className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)} disabled={sending}>
+        <option value="">{t("历史对话")}</option>
+        {conversations.map((item) => <option key={item.id} value={item.id}>[{item.providerId === "deepseek" ? "DeepSeek" : "ChatGPT"}] {localizedConversationTitle(item.title, locale)}</option>)}
+      </select> : null}
+      </div>
+      <details className="model-settings">
+      <summary><ProviderIdentity assistant={assistant} /><span>{locale === "zh-CN" ? "模型与连接" : "Model & connection"}</span></summary>
       <ProviderSwitcher
         providers={providers}
         value={providerId}
@@ -130,25 +144,9 @@ export function AssistantPanel({
           </select>
         )}
         <datalist id="deepseek-models">{models.map((item) => <option key={item.model} value={item.model}>{item.displayName}</option>)}</datalist>
-        <button className="ghost-button compact" onClick={assistant.newConversation} disabled={sending}>＋ {t("新对话")}</button>
         {providerId === "deepseek" && !conversation ? <button className="text-button provider-configure" onClick={() => setEditingDeepSeek(true)}>{t("配置 DeepSeek")}</button> : null}
-        {conversations.length ? (
-          <select className="history-select" value={conversation?.id ?? ""} onChange={(event) => assistant.selectConversation(event.target.value)} disabled={sending}>
-            <option value="">{t("历史对话")}</option>
-            {conversations.map((item) => <option key={item.id} value={item.id}>[{item.providerId === "deepseek" ? "DeepSeek" : "ChatGPT"}] {localizedConversationTitle(item.title, locale)}</option>)}
-          </select>
-        ) : null}
       </div>
-      <ContextPicker assistant={assistant} context={context} />
-      <div className="context-chip-row">
-        <span className={`context-chip ${context?.environment.verified === false ? "warning" : ""}`}>{context ? localizedEnvironmentLabel(context.environment.label, context.environment.kind, locale) : t("识别环境中")}</span>
-        <details className="context-preview"><summary>{t("检查上下文")}</summary><pre>{JSON.stringify({
-          environment: context?.environment,
-          cwd: context?.cwd,
-          shell: context?.shell,
-          selection: assistant.contextSelection,
-        }, null, 2)}</pre></details>
-      </div>
+      </details>
       <div className="message-list" ref={scrollRef}>
         {!conversation?.messages.length ? (
           <div className="conversation-empty">
@@ -167,8 +165,8 @@ export function AssistantPanel({
             {item.role === "assistant" ? <AssistantMarkdown content={item.content} /> : <div className="message-body">{item.role === "timeline" ? localizedSystemMessage(item.content, locale) : item.content}</div>}
             <MessageAttachments message={item} assistant={assistant} />
             {item.proposalIds?.map((id) => {
-              const proposal = conversation.proposals.find((candidate) => candidate.id === id);
-              return proposal ? <ProposalCard key={id} proposal={proposal} onDecision={(item, decision) => void assistant.decide(item, decision)} onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
+              const proposal = latestProposal(conversation.proposals, id);
+              return proposal ? <ProposalCard key={proposal.id} proposal={proposal} busy={!!assistant.proposalBusy[proposal.id]} error={assistant.proposalErrors[proposal.id]} onRecheck={() => void assistant.recheck(proposal)} onDecision={(item, decision) => void assistant.decide(item, decision)} onExplain={(commandId) => void assistant.send(t("解释这条命令执行后的输出，并告诉我是否正常。"), [commandId])} /> : null;
             })}
           </div>
         ))}
@@ -177,7 +175,9 @@ export function AssistantPanel({
       </div>
       {error ? <div className="panel-error">{error}</div> : null}
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void assistant.send(); }}>
+        <ContextPicker assistant={assistant} context={context} showProvider={false} />
         <textarea
+          ref={inputRef}
           value={message}
           onChange={(event) => assistant.setMessage(event.target.value)}
           onKeyDown={(event) => {
@@ -308,8 +308,23 @@ function DeepSeekSetup({ assistant, onDone, onCancel }: {
   );
 }
 
-export function ProposalCard({ proposal, onDecision, onExplain }: {
+function latestProposal(proposals: CommandProposal[], id: string): CommandProposal | undefined {
+  const visited = new Set<string>();
+  let proposal = proposals.find((item) => item.id === id);
+  while (proposal?.replacementProposalId && !visited.has(proposal.id)) {
+    visited.add(proposal.id);
+    const next = proposals.find((item) => item.id === proposal!.replacementProposalId);
+    if (!next) break;
+    proposal = next;
+  }
+  return proposal;
+}
+
+export function ProposalCard({ proposal, busy, error, onRecheck, onDecision, onExplain }: {
   proposal: CommandProposal;
+  busy: boolean;
+  error: string | undefined;
+  onRecheck(): void;
   onDecision(proposal: CommandProposal, decision: ApprovalDecision): void;
   onExplain(commandBlockId: string): void;
 }) {
@@ -325,13 +340,16 @@ export function ProposalCard({ proposal, onDecision, onExplain }: {
         {proposal.containerId ? <span title={proposal.containerId}>{t("容器")} {proposal.containerId.slice(0, 12)}</span> : null}
         <span>{proposal.user || t("当前用户")}</span><span>{proposal.cwd || t("当前目录")}</span><span>{proposal.shell}</span>
       </div>
+      {error || proposal.status === "stale" || proposal.status === "expired" ? <p className="proposal-notice" role="status">{error ?? t("终端状态已变化。重新检查原终端后，才能再次确认执行。")}</p> : null}
+      {proposal.replacesProposalId && proposal.status === "pending" ? <p className="proposal-notice" role="status">{t("已重新检查。请核对命令与原执行目标，再确认执行。")}</p> : null}
       {proposal.status === "pending" ? (
         <div className="proposal-actions">
-          <button className="primary-button compact" onClick={() => onDecision(proposal, "execute")}>{t("在此终端执行")}</button>
-          <button className="ghost-button compact" onClick={() => onDecision(proposal, "insert")}>{t("放入输入行")}</button>
-          <button className="text-button" onClick={() => onDecision(proposal, "reject")}>{t("暂不执行")}</button>
+          <button className="primary-button compact" disabled={busy} onClick={() => onDecision(proposal, "execute")}>{t("在此终端执行")}</button>
+          <button className="ghost-button compact" disabled={busy} onClick={() => onDecision(proposal, "insert")}>{t("放入输入行")}</button>
+          <button className="text-button" disabled={busy} onClick={() => onDecision(proposal, "reject")}>{t("暂不执行")}</button>
         </div>
-      ) : proposal.operationId ? <OperationTracker id={proposal.operationId} onExplain={onExplain} /> : null}
+      ) : proposal.status === "stale" || proposal.status === "expired" ? <button type="button" className="ghost-button compact" disabled={busy} onClick={onRecheck}>{busy ? t("正在重新检查…") : t("重新检查并确认")}</button>
+        : proposal.operationId ? <OperationTracker id={proposal.operationId} onExplain={onExplain} /> : null}
     </section>
   );
 }

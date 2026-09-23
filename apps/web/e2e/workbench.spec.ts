@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Route } from "@playwright/test";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const screenshotDirectory = resolve(here, "../../../artifacts/playwright");
@@ -11,6 +11,12 @@ const workbenchUrl = process.env.STACKBRIDGE_WEB_URL ?? "http://127.0.0.1:5173";
 test.beforeAll(() => mkdirSync(screenshotDirectory, { recursive: true }));
 
 test("configures DeepSeek from the AI rail without exposing its API key", async ({ page }) => {
+  const delayedChatGptModels: Route[] = [];
+  let holdChatGptModels = true;
+  await page.route("**/v1/ai/models?providerId=chatgpt", (route) => {
+    if (holdChatGptModels) { delayedChatGptModels.push(route); return; }
+    return route.fulfill({ json: { data: [{ id: "gpt-5.6-luna", model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", description: "", isDefault: true }] } });
+  });
   let configured = false;
   let savedModel = "deepseek-flash";
   let conversation: Record<string, unknown> | undefined;
@@ -172,8 +178,10 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
 
   await page.goto("/");
   await page.getByRole("button", { name: "AI assistant" }).click();
+  await page.locator(".model-settings > summary").click();
   const providerGroup = page.getByRole("group", { name: "AI provider" });
   await expect(providerGroup).toBeVisible();
+  await expect.poll(() => delayedChatGptModels.length).toBeGreaterThan(0);
   await providerGroup.getByRole("button", { name: /DeepSeek/ }).click();
   await expect(page.getByRole("heading", { name: "Configure DeepSeek API" })).toBeVisible();
   await page.getByLabel("Model").fill("deepseek-custom");
@@ -181,9 +189,13 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await page.getByRole("button", { name: "Test connection" }).click();
   await expect(page.getByText("Connection successful")).toBeVisible();
   await page.getByRole("button", { name: "Save and use" }).click();
+  await page.locator(".model-settings > summary").click();
   await expect(page.getByRole("button", { name: "Configure DeepSeek" })).toBeVisible();
   await expect(page.locator("input[type='password']")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("ds-ui-secret");
+  holdChatGptModels = false;
+  for (const route of delayedChatGptModels) await route.fulfill({ json: { data: [{ id: "gpt-5.6-luna", model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", description: "", isDefault: true }] } });
+  await expect(page.locator(".assistant-tools .model-input input")).toHaveValue("deepseek-custom");
 
   const composer = page.getByPlaceholder("Ask about the current command, output, or next step…");
   await composer.fill("Route this through DeepSeek");
@@ -210,8 +222,10 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await expect(quickAsk).toBeVisible();
   await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
   await quickAsk.getByRole("button", { name: /Context ×/ }).click();
-  await quickAsk.getByLabel("Context mode").selectOption("none");
-  await expect(quickAsk).toContainText("0.0 KiB");
+  await page.getByRole("dialog").getByLabel("Context mode").selectOption("none");
+  await expect(page.getByRole("dialog")).toContainText("0.0 KiB");
+  await page.getByRole("button", { name: "Close context selection" }).click();
+  await expect(quickAsk).toContainText("No terminal content");
   const nextTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
   await quickAsk.locator("textarea").fill("Continue the DeepSeek conversation");
   await quickAsk.locator("textarea").press("Enter");
@@ -221,18 +235,56 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await expect(quickAsk.locator(".message-body pre code")).toHaveText("printf 'hello'\n");
   await expect(quickAsk.locator(".message-body table")).toContainText("AMD");
   await expect(quickAsk.locator(".message-body script, .message-body img, .message-body a[href^='javascript:']")).toHaveCount(0);
-  await quickAsk.getByLabel("Context mode").selectOption("manual");
-  await quickAsk.getByLabel("echo SELECT_ME", { exact: true }).check();
+  await quickAsk.getByRole("button", { name: /Context ×/ }).click();
+  await page.getByRole("dialog").getByLabel("Context mode").selectOption("manual");
+  await page.getByRole("dialog").getByLabel("echo SELECT_ME", { exact: true }).check();
+  await page.getByRole("button", { name: "Close context selection" }).click();
   await expect(quickAsk.getByRole("button", { name: "Context ×1" })).toBeVisible();
   const manualTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
   await quickAsk.locator("textarea").fill("Only the selected block");
   await quickAsk.locator("textarea").press("Enter");
   expect((await manualTurn).postDataJSON()).toMatchObject({ preparedContextId: "00000000-0000-4000-8000-000000000911" });
   await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 3");
-  await quickAsk.getByLabel("Context mode").selectOption("auto");
+  await expect(quickAsk.locator(".inline-answer-preview")).toHaveCSS("overflow-y", "hidden");
+  await expect(quickAsk.getByRole("button", { name: "Read full answer" })).toBeVisible();
+  await quickAsk.getByRole("button", { name: /Context ×/ }).click();
+  await page.getByRole("dialog").getByLabel("Context mode").selectOption("auto");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(quickAsk).toBeVisible();
   await expect(quickAsk.getByRole("button", { name: "Context ×3" })).toBeVisible();
   await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
   await page.screenshot({ path: resolve(screenshotDirectory, "quick-ask-context-selection.png") });
+  await quickAsk.locator("textarea").fill("Keep this draft and its attachments");
+  await quickAsk.getByRole("button", { name: "Open conversation", exact: true }).click();
+  const dock = page.locator(".assistant-panel");
+  await expect(quickAsk).toHaveCount(0);
+  await expect(dock.locator("textarea")).toHaveValue("Keep this draft and its attachments");
+  await expect(dock).toContainText("DeepSeek routed answer 3");
+  await expect(dock.locator(".message.assistant .message-body").last()).toHaveCSS("font-size", "14px");
+  await expect(dock.getByRole("button", { name: "Context ×3" })).toBeVisible();
+  expect(turnCount).toBe(3);
+  const originalWidth = (await dock.boundingBox())!.width;
+  const divider = page.getByRole("separator", { name: "Resize AI panel" });
+  await divider.focus();
+  await divider.press("ArrowLeft");
+  await expect.poll(async () => (await dock.boundingBox())!.width).toBeGreaterThan(originalWidth + 15);
+  const dividerBox = (await divider.boundingBox())!;
+  await page.mouse.move(dividerBox.x + dividerBox.width / 2, dividerBox.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(dividerBox.x - 65, dividerBox.y + 100, { steps: 5 });
+  await page.mouse.up();
+  const resizedWidth = (await dock.boundingBox())!.width;
+  expect(resizedWidth).toBeGreaterThan(originalWidth + 60);
+  await dock.getByRole("button", { name: "Back to Quick Ask" }).click();
+  await expect(quickAsk.locator("textarea")).toHaveValue("Keep this draft and its attachments");
+  await quickAsk.getByRole("button", { name: "Open conversation", exact: true }).click();
+  await expect.poll(async () => (await dock.boundingBox())!.width).toBeCloseTo(resizedWidth, 0);
+  await expect(dock.locator(".message.assistant").last().getByText("DeepSeek routed answer 3")).toBeInViewport();
+  await page.screenshot({ path: resolve(screenshotDirectory, "ai-workspace-docked.png") });
+  await page.setViewportSize({ width: 800, height: 700 });
+  await expect.poll(async () => (await dock.boundingBox())!.width).toBeLessThan(740);
+  await expect(dock.locator("textarea")).toBeVisible();
   expect(turnCount).toBe(3);
 });
 
@@ -256,10 +308,10 @@ test("highlights whole command blocks and supports range dragging and a movable 
   await expect(page.getByRole("button", { name: "Extend context start" })).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Extend context end" })).toHaveCount(1);
   await quick.getByRole("button", { name: "Context ×3" }).click();
-  await quick.getByLabel("Context mode").selectOption("manual");
-  await quick.getByLabel("Write-Output 'CTX_ONE'", { exact: true }).check();
+  await page.getByRole("dialog").getByLabel("Context mode").selectOption("manual");
+  await page.getByRole("dialog").getByLabel("Write-Output 'CTX_ONE'", { exact: true }).check();
+  await page.getByRole("button", { name: "Close context selection" }).click();
   await expect(quick.getByRole("button", { name: "Context ×1" })).toBeVisible();
-  await quick.getByRole("button", { name: "Context ×1" }).click();
   await expect(page.locator(".terminal-context-highlight")).toHaveCount(1);
   const handle = await page.getByRole("button", { name: "Extend context end" }).boundingBox();
   const target = await page.locator(".xterm-rows").getByText("CTX_THREE", { exact: true }).last().boundingBox();
@@ -283,6 +335,12 @@ test("highlights whole command blocks and supports range dragging and a movable 
   await expect(quick).toHaveAttribute("data-placement", "fixed");
   await expect.poll(async () => (await quick.boundingBox())!.width).toBeCloseTo(resized!.width, 0);
   await page.screenshot({ path: resolve(screenshotDirectory, "terminal-context-highlights.png") });
+  await quick.getByRole("button", { name: "Restore compact" }).click();
+  await expect.poll(async () => (await quick.locator("textarea").boundingBox())!.height).toBeLessThanOrEqual(32);
+  await expect(quick).toHaveAttribute("data-placement", "fixed");
+  await expect.poll(async () => (await quick.boundingBox())!.height).toBeLessThan(resized!.height - 40);
+  await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();
+  await page.screenshot({ path: resolve(screenshotDirectory, "quick-ask-restored-compact.png") });
   await quick.getByRole("button", { name: "Follow cursor" }).click();
   await expect(quick).not.toHaveAttribute("data-placement", "fixed");
   await page.keyboard.press("Escape");
@@ -371,6 +429,8 @@ test("defaults to English and persists a Chinese language choice", async ({ page
 });
 
 test("opens without a launch token and drives the real terminal workbench", async ({ page }) => {
+  await page.route("**/v1/ai/account/status", (route) => route.fulfill({ json: { schemaVersion: 2, available: true, authenticated: true } }));
+  await page.route("**/v1/ai/providers", (route) => route.fulfill({ json: { data: [{ id: "chatgpt", label: "ChatGPT", available: true, configured: true, authenticated: true }] } }));
   await page.goto("/");
 
   await expect(page.locator(".rail-brand")).toBeVisible();
@@ -462,7 +522,8 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   expect(cursorBoxBeforeQuickAsk).not.toBeNull();
   expect(quickAskBox).not.toBeNull();
   expect(Math.abs(terminalBoxWithQuickAsk!.height - terminalBoxBeforeQuickAsk!.height)).toBeLessThan(2);
-  expect(quickAskBox!.height).toBeLessThanOrEqual(165);
+  // Readable provider / attachment controls fit in a compact, five-row composer.
+  expect(quickAskBox!.height).toBeLessThanOrEqual(210);
   await expect(inlineAssistant.locator(".ask-context-heading")).toContainText("ChatGPT");
   expect(quickAskBox!.width).toBeLessThanOrEqual(430);
   const distanceToCursor = Math.min(
@@ -629,6 +690,8 @@ test("offers AI actions beside the latest terminal output", async ({ page }) => 
 });
 
 test("splits the active terminal horizontally from its context menu", async ({ page }) => {
+  await page.route("**/v1/ai/account/status", (route) => route.fulfill({ json: { schemaVersion: 2, available: true, authenticated: true } }));
+  await page.route("**/v1/ai/providers", (route) => route.fulfill({ json: { data: [{ id: "chatgpt", label: "ChatGPT", available: true, configured: true, authenticated: true }] } }));
   await page.goto("/");
 
   const panes = page.getByRole("group", { name: "Terminal pane" });

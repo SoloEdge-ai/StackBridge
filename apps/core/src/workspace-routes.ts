@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   aiProviderIdSchema,
   approvalDecisionRequestSchema,
+  proposalRecheckRequestSchema,
   createConversationRequestSchema,
   createTurnRequestSchema,
   contextSelectionSchema,
@@ -25,6 +26,7 @@ import {
   ConversationTerminalNotFoundError,
   ProposalExpiredError,
   ProposalNotFoundError,
+  ProposalRecheckError,
 } from "./conversation-service.js";
 import { readJsonBody, writeJson } from "./http.js";
 import { PreparedContextError } from "./prepared-context.js";
@@ -235,6 +237,31 @@ export async function handleWorkspaceRequest(
       if (error instanceof ConversationNotFoundError) {
         writeJson(response, 404, { error: "conversation_not_found" });
       } else throw error;
+    }
+    return true;
+  }
+
+  const recheckMatch = /^\/v1\/approvals\/([0-9a-f-]{36})\/recheck$/.exec(url.pathname);
+  if (request.method === "POST" && recheckMatch?.[1]) {
+    if (!options.conversations) { writeJson(response, 503, { error: "conversations_unavailable" }); return true; }
+    if (!proposalRecheckRequestSchema.safeParse(await readJsonBody(request)).success) {
+      writeJson(response, 400, { error: "invalid_request" }); return true;
+    }
+    try {
+      const proposal = options.conversations.proposal(recheckMatch[1]);
+      if (!options.terminalSessions.get(proposal.terminalSessionId)) {
+        writeJson(response, 409, { error: "proposal_target_unavailable" }); return true;
+      }
+      const owner = authenticatedBrowserSession(request, browserSessions);
+      if (!owner || !terminalWebSockets.hasWriteLease(proposal.terminalSessionId, owner)) {
+        writeJson(response, 409, { error: "write_lease_required" }); return true;
+      }
+      writeJson(response, 200, options.conversations.recheck(proposal.id));
+    } catch (error) {
+      if (error instanceof ProposalNotFoundError) writeJson(response, 404, { error: "proposal_not_found" });
+      else if (error instanceof ConversationTerminalNotFoundError) writeJson(response, 409, { error: "proposal_target_unavailable" });
+      else if (error instanceof ProposalRecheckError) writeJson(response, 409, { error: error.code });
+      else throw error;
     }
     return true;
   }

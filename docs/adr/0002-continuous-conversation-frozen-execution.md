@@ -27,3 +27,15 @@ The first specification also separated the human Shell from Agent execution. The
 - Same-Shell state is preserved without exporting the process environment to the model.
 - Interactive programs, password prompts, unknown Shells, and stale bindings intentionally reduce capability instead of accepting an unsafe best guess.
 - Future isolated or unattended Agent workflows remain a separate execution mode and must not inherit this same-Shell authority implicitly.
+
+## Explicit recheck recovery (2026-09-23)
+
+A stale or expired, never-submitted proposal can be explicitly rechecked against
+its original terminal. This creates a new pending proposal and AgentSession with
+current context/input versions; it never mutates the old frozen scope, retargets
+to UI focus, calls the model, or executes a command. Terminal/frame/binding, cwd,
+Shell and user must still match, and verification, write lease, idle Shell and
+empty input remain required. The user reviews the command and original target
+and makes a separate execute/insert decision, which revalidates the new scope.
+The replacement link and both scopes are persisted atomically for idempotent
+retries. Submitted/unknown operations cannot be reauthorized through this path.
