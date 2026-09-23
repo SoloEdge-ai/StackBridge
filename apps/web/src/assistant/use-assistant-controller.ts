@@ -10,6 +10,9 @@ import {
   type ConversationSnapshot,
   type DeepSeekProviderInput,
   type ContextSelection,
+  type AssistantContextPreview,
+  type TerminalContext,
+  type TerminalAttachment,
 } from "@stackbridge/protocol";
 import { api, errorMessage } from "../api/client.js";
 import { useLanguage } from "../i18n.js";
@@ -32,6 +35,11 @@ export interface AssistantController {
   message: string;
   contextSelection: ContextSelection;
   setContextSelection(value: ContextSelection): void;
+  contextPreview: AssistantContextPreview | undefined;
+  contextPreviewError: boolean;
+  contextPreviewPending: boolean;
+  viewedAttachments: TerminalAttachment[] | undefined;
+  viewAttachments(value: TerminalAttachment[] | undefined): void;
   pendingMessage: string | undefined;
   pendingTerminalId: string | undefined;
   inlineAssistantMessage: ConversationMessage | undefined;
@@ -72,7 +80,7 @@ export function transitionConversationSelection(
     : conversations.find((item) => item.id === action.id);
 }
 
-export function useAssistantController(terminalId: string): AssistantController {
+export function useAssistantController(terminalId: string, terminalContext?: TerminalContext): AssistantController {
   const { t } = useLanguage();
   const [account, setAccount] = useState<AiAccountStatus>();
   const [providers, setProviders] = useState<AiProviderSummary[]>([]);
@@ -83,6 +91,11 @@ export function useAssistantController(terminalId: string): AssistantController 
   const [conversations, setConversations] = useState<ConversationSnapshot[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [contextSelections, setContextSelections] = useState<Record<string, ContextSelection>>({});
+  const [contextPreview, setContextPreview] = useState<AssistantContextPreview>();
+  const [contextPreviewError, setContextPreviewError] = useState(false);
+  const [contextPreviewPending, setContextPreviewPending] = useState(true);
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const [viewedAttachments, viewAttachments] = useState<TerminalAttachment[]>();
   const contextSelection = contextSelections[terminalId] ?? { contextMode: "auto" };
   const [pendingMessage, setPendingMessage] = useState<string>();
   const [pendingTerminalId, setPendingTerminalId] = useState<string>();
@@ -93,6 +106,29 @@ export function useAssistantController(terminalId: string): AssistantController 
   const [loginId, setLoginId] = useState<string>();
   const turnRequestVersion = useRef(0);
   const activeTurnConversationId = useRef<string | undefined>(undefined);
+  const selectionKey = JSON.stringify(contextSelection);
+  const outputSequence = useRef(terminalContext?.outputSequence);
+  outputSequence.current = terminalContext?.outputSequence;
+  const [previewOutputSequence, setPreviewOutputSequence] = useState(outputSequence.current);
+  useEffect(() => {
+    const timer = window.setInterval(() => setPreviewOutputSequence(outputSequence.current), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (sending || !terminalId) return;
+    const abort = new AbortController();
+    setContextPreviewPending(true);
+    setContextPreviewError(false);
+    void fetch(`/v1/terminal-sessions/${terminalId}/ai-context`, {
+      method: "POST", headers: { "content-type": "application/json" }, signal: abort.signal,
+      body: JSON.stringify({ ...JSON.parse(selectionKey), prepare: true, ...(conversation ? { conversationId: conversation.id } : {}) }),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Context preparation failed");
+      const preview = await response.json() as AssistantContextPreview;
+      if (!abort.signal.aborted) { setContextPreview(preview); setContextPreviewPending(false); }
+    }).catch(() => { if (!abort.signal.aborted) { setContextPreviewError(true); setContextPreviewPending(false); setContextPreview(undefined); } });
+    return () => abort.abort();
+  }, [terminalId, terminalContext?.contextVersion, previewOutputSequence, conversation?.id, sending, selectionKey, previewRevision]);
 
   const refreshProviders = useCallback(async () => {
     const response = await fetch("/v1/ai/providers", { cache: "no-store" });
@@ -138,7 +174,7 @@ export function useAssistantController(terminalId: string): AssistantController 
     });
   }, [conversation?.id, conversation?.model, conversation?.providerId, providerId, providers]);
 
-  const createConversation = useCallback(async (targetTerminalId: string): Promise<ConversationSnapshot> => {
+  const createConversation = useCallback(async (targetTerminalId: string, preparedContextId?: string): Promise<ConversationSnapshot> => {
     if (!targetTerminalId) throw new Error(t("正在准备终端…"));
     const created = await api<ConversationSnapshot>("/v1/conversations", {
       method: "POST",
@@ -148,6 +184,7 @@ export function useAssistantController(terminalId: string): AssistantController 
         terminalSessionId: targetTerminalId,
         providerId,
         model,
+        ...(preparedContextId ? { preparedContextId } : {}),
       }),
     }, t);
     const parsed = conversationSnapshotSchema.parse(created);
@@ -220,6 +257,11 @@ export function useAssistantController(terminalId: string): AssistantController 
     const targetTerminalId = terminalIdOverride ?? terminalId;
     const prompt = text ?? drafts[targetTerminalId] ?? "";
     if (!prompt.trim() || sending) return;
+    if (!commandIds && (contextPreviewPending || !contextPreview?.preparedId || targetTerminalId !== terminalId)) {
+      setError(t("正在准备终端…"));
+      setPreviewRevision((value) => value + 1);
+      return;
+    }
     const requestVersion = ++turnRequestVersion.current;
     setSending(true);
     setError(undefined);
@@ -228,13 +270,17 @@ export function useAssistantController(terminalId: string): AssistantController 
     setPendingTerminalId(targetTerminalId);
     setDrafts((current) => ({ ...current, [targetTerminalId]: "" }));
     try {
-      const current = conversation ?? await createConversation(targetTerminalId);
+      const prepared = commandIds ? await api<AssistantContextPreview>(`/v1/terminal-sessions/${targetTerminalId}/ai-context`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prepare: true, contextMode: "manual", commandIds, ...(conversation ? { conversationId: conversation.id } : {}) }),
+      }, t) : contextPreview!;
+      const current = conversation ?? await createConversation(targetTerminalId, prepared.preparedId);
       if (turnRequestVersion.current !== requestVersion) return;
       activeTurnConversationId.current = current.id;
       const updated = await api<ConversationSnapshot>(`/v1/conversations/${current.id}/turns`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, message: prompt.trim(), ...(commandIds ? { contextMode: "manual", commandIds } : contextSelections[targetTerminalId] ?? { contextMode: "auto" }) }),
+        body: JSON.stringify({ schemaVersion: 2, terminalSessionId: targetTerminalId, message: prompt.trim(), preparedContextId: prepared.preparedId }),
       }, t);
       const parsed = conversationSnapshotSchema.parse(updated);
       if (turnRequestVersion.current === requestVersion) {
@@ -248,6 +294,8 @@ export function useAssistantController(terminalId: string): AssistantController 
     } catch (reason) {
       if (turnRequestVersion.current === requestVersion) {
         setError(errorMessage(reason, t));
+        setDrafts((drafts) => ({ ...drafts, [targetTerminalId]: prompt }));
+        setPreviewRevision((value) => value + 1);
         setErrorTerminalId(targetTerminalId);
       }
     } finally {
@@ -301,8 +349,15 @@ export function useAssistantController(terminalId: string): AssistantController 
     conversations,
     message,
     contextSelection,
+    contextPreview,
+    contextPreviewError,
+    contextPreviewPending,
+    viewedAttachments,
+    viewAttachments,
     setContextSelection(value) {
       if (sending) return;
+      setContextPreviewPending(true);
+      viewAttachments(undefined);
       setContextSelections((current) => ({ ...current, [terminalId]: value }));
     },
     pendingMessage,
@@ -328,6 +383,8 @@ export function useAssistantController(terminalId: string): AssistantController 
     },
     selectConversation(id) {
       if (sending) return;
+      setContextPreview(undefined);
+      viewAttachments(undefined);
       const selected = transitionConversationSelection(
         conversation,
         conversations,
@@ -343,6 +400,8 @@ export function useAssistantController(terminalId: string): AssistantController 
     },
     newConversation() {
       if (sending) return;
+      setContextPreview(undefined);
+      viewAttachments(undefined);
       setConversation((current) => transitionConversationSelection(
         current,
         conversations,

@@ -18,13 +18,22 @@ function boundedHistoryJson(
   history: Parameters<AgentEngine["runTurn"]>[0]["history"],
   maximumBytes: number,
 ): string {
-  const selected: Array<{ role: string; content: string }> = [];
+  const selected: Array<{ role: string; content: string; terminal_context?: unknown }> = [];
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const message = history[index]!;
-    const candidate = [{ role: message.role, content: message.content }, ...selected];
+    if (message.role !== "assistant") continue;
+    const question = history[index - 1];
+    if (!question || question.role !== "user") continue;
+    const context = question.contextSnapshot;
+    if (context && context.status !== "succeeded") continue;
+    const user = { role: question.role, content: question.content,
+      ...(context?.contextJson ? { terminal_context: JSON.parse(context.contextJson) as unknown } : {}),
+    };
+    const candidate = [user, { role: message.role, content: message.content }, ...selected];
     const serialized = JSON.stringify(candidate);
     if (Buffer.byteLength(serialized, "utf8") > maximumBytes) break;
-    selected.unshift(candidate[0]!);
+    selected.unshift(candidate[0]!, candidate[1]!);
+    index--;
   }
   return JSON.stringify(selected);
 }

@@ -21,7 +21,7 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await page.route("**/v1/terminal-sessions/*/ai-context", async (route) => {
     const selection = route.request().postDataJSON() as { contextMode: string; commandIds?: string[] };
     const count = selection.contextMode === "none" ? 0 : selection.contextMode === "manual" ? selection.commandIds?.length ?? 0 : 3;
-    await route.fulfill({ json: { bytes: selection.contextMode === "none" ? 0 : 512 + count * 1024, outputCount: count, commands: [
+    await route.fulfill({ json: { preparedId: "00000000-0000-4000-8000-000000000911", attachments: [], bytes: selection.contextMode === "none" ? 0 : 512 + count * 1024, outputCount: count, commands: [
       { id: selectedCommandId, command: "echo SELECT_ME", cwd: "C:\\work", exitCode: 0, output: "SELECT_ME" },
       { id: "00000000-0000-4000-8000-000000000902", command: "echo IGNORE_ME", cwd: "C:\\work", exitCode: 0, output: "IGNORE_ME" },
       { id: "00000000-0000-4000-8000-000000000903", command: "echo THIRD", cwd: "C:\\work", exitCode: 0, output: "THIRD" },
@@ -161,7 +161,7 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
           schemaVersion: 2,
           id: `00000000-0000-4000-8000-0000000002${turnCount}2`,
           role: "assistant",
-          content: `DeepSeek routed answer ${turnCount}`,
+          content: `DeepSeek routed answer ${turnCount}\n\n**CPU** and \`uname -a\`\n\n- Linux host\n\n\`\`\`sh\nprintf 'hello'\n\`\`\`\n\n| Item | Value |\n| --- | --- |\n| CPU | AMD |\n\n<script>window.markdownExecuted = true</script>\n\n[unsafe](javascript:alert(1))\n\n![remote](https://example.invalid/tracker.png)`,
           createdAt: timestamp,
           proposalIds: [],
         },
@@ -189,6 +189,12 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await composer.fill("Route this through DeepSeek");
   await composer.press("Enter");
   await expect(page.getByText("DeepSeek routed answer 1")).toBeVisible();
+  const fullReply = page.locator(".message.assistant .message-body").last();
+  await expect(fullReply.locator("strong")).toHaveText("CPU");
+  await expect(fullReply.locator("li")).toHaveText("Linux host");
+  await expect(fullReply.locator("pre code")).toHaveText("printf 'hello'\n");
+  await expect(fullReply.locator("table")).toContainText("AMD");
+  await expect(fullReply.locator("script, img, a[href^='javascript:']")).toHaveCount(0);
   await expect(providerGroup.getByRole("button", { name: /ChatGPT/ })).toBeDisabled();
   await page.getByRole("button", { name: /New conversation/ }).click();
   await providerGroup.getByRole("button", { name: /ChatGPT/ }).click();
@@ -209,21 +215,84 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   const nextTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
   await quickAsk.locator("textarea").fill("Continue the DeepSeek conversation");
   await quickAsk.locator("textarea").press("Enter");
-  expect((await nextTurn).postDataJSON()).toMatchObject({ contextMode: "none" });
+  expect((await nextTurn).postDataJSON()).toMatchObject({ preparedContextId: "00000000-0000-4000-8000-000000000911" });
   await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 2");
+  await expect(quickAsk.locator(".message-body strong")).toHaveText("CPU");
+  await expect(quickAsk.locator(".message-body pre code")).toHaveText("printf 'hello'\n");
+  await expect(quickAsk.locator(".message-body table")).toContainText("AMD");
+  await expect(quickAsk.locator(".message-body script, .message-body img, .message-body a[href^='javascript:']")).toHaveCount(0);
   await quickAsk.getByLabel("Context mode").selectOption("manual");
   await quickAsk.getByLabel("echo SELECT_ME", { exact: true }).check();
   await expect(quickAsk.getByRole("button", { name: "Context ×1" })).toBeVisible();
   const manualTurn = page.waitForRequest((request) => request.url().endsWith(`/v1/conversations/${conversationId}/turns`));
   await quickAsk.locator("textarea").fill("Only the selected block");
   await quickAsk.locator("textarea").press("Enter");
-  expect((await manualTurn).postDataJSON()).toMatchObject({ contextMode: "manual", commandIds: [selectedCommandId] });
+  expect((await manualTurn).postDataJSON()).toMatchObject({ preparedContextId: "00000000-0000-4000-8000-000000000911" });
   await expect(quickAsk.locator(".inline-ai-response")).toContainText("DeepSeek routed answer 3");
   await quickAsk.getByLabel("Context mode").selectOption("auto");
   await expect(quickAsk.getByRole("button", { name: "Context ×3" })).toBeVisible();
   await expect(quickAsk).toContainText("DeepSeek · deepseek-custom");
   await page.screenshot({ path: resolve(screenshotDirectory, "quick-ask-context-selection.png") });
   expect(turnCount).toBe(3);
+});
+
+test("highlights whole command blocks and supports range dragging and a movable resizable Quick Ask", async ({ page }) => {
+  await page.route("**/v1/ai/account/status", (route) => route.fulfill({ json: { schemaVersion: 2, available: true, authenticated: true } }));
+  await page.route("**/v1/ai/providers", (route) => route.fulfill({ json: { data: [{ id: "chatgpt", kind: "chatgpt", label: "ChatGPT", available: true, configured: true, authenticated: true, credentialPersistence: "codex-managed" }] } }));
+  await page.goto("/");
+  const terminal = page.locator(".terminal-pane-shell.active .xterm-helper-textarea");
+  await expect(page.locator(".terminal-status")).toContainText("Connected to real PTY");
+  await expect(page.locator(".xterm-rows")).toContainText("Local Windows", { timeout: 15000 });
+  for (const name of ["ONE", "TWO", "THREE", "FOUR"]) {
+    await terminal.focus();
+    await terminal.pressSequentially(`Write-Output 'CTX_${name}'`, { delay: 3 });
+    await terminal.press("Enter");
+    await expect(page.locator(".xterm-rows").getByText(`CTX_${name}`, { exact: true }).last()).toBeVisible();
+  }
+  await page.keyboard.press("F8");
+  const quick = page.locator(".inline-assistant");
+  await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();
+  await expect(page.locator(".terminal-context-highlight")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Extend context start" })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Extend context end" })).toHaveCount(1);
+  await quick.getByRole("button", { name: "Context ×3" }).click();
+  await quick.getByLabel("Context mode").selectOption("manual");
+  await quick.getByLabel("Write-Output 'CTX_ONE'", { exact: true }).check();
+  await expect(quick.getByRole("button", { name: "Context ×1" })).toBeVisible();
+  await quick.getByRole("button", { name: "Context ×1" }).click();
+  await expect(page.locator(".terminal-context-highlight")).toHaveCount(1);
+  const handle = await page.getByRole("button", { name: "Extend context end" }).boundingBox();
+  const target = await page.locator(".xterm-rows").getByText("CTX_THREE", { exact: true }).last().boundingBox();
+  expect(handle).not.toBeNull(); expect(target).not.toBeNull();
+  await page.mouse.move(handle!.x + 5, handle!.y + 5); await page.mouse.down();
+  await page.mouse.move(handle!.x + 5, target!.y + 5, { steps: 8 }); await page.mouse.up();
+  await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();
+  const before = await quick.boundingBox();
+  const grip = await quick.getByLabel("Move Quick Ask").boundingBox();
+  await page.mouse.move(grip!.x + 30, grip!.y + 5); await page.mouse.down();
+  await page.mouse.move(grip!.x + 100, grip!.y - 65, { steps: 8 }); await page.mouse.up();
+  await expect(quick).toHaveAttribute("data-placement", "fixed");
+  const moved = await quick.boundingBox();
+  expect(Math.abs(moved!.x - before!.x) + Math.abs(moved!.y - before!.y)).toBeGreaterThan(20);
+  const resize = await quick.getByLabel("Resize Quick Ask").boundingBox();
+  await page.mouse.move(resize!.x + 5, resize!.y + 5); await page.mouse.down();
+  await page.mouse.move(resize!.x + 105, resize!.y + 85, { steps: 8 }); await page.mouse.up();
+  const resized = await quick.boundingBox();
+  expect(resized!.width).toBeGreaterThan(moved!.width + 50);
+  await page.keyboard.press("Escape"); await page.keyboard.press("F8");
+  await expect(quick).toHaveAttribute("data-placement", "fixed");
+  await expect.poll(async () => (await quick.boundingBox())!.width).toBeCloseTo(resized!.width, 0);
+  await page.screenshot({ path: resolve(screenshotDirectory, "terminal-context-highlights.png") });
+  await quick.getByRole("button", { name: "Follow cursor" }).click();
+  await expect(quick).not.toHaveAttribute("data-placement", "fixed");
+  await page.keyboard.press("Escape");
+  await terminal.focus();
+  await terminal.pressSequentially("Clear-Host", { delay: 3 });
+  await terminal.press("Enter");
+  await expect(page.locator(".terminal-context-highlight")).toHaveCount(0);
+  await expect(page.locator(".context-range-unavailable")).toBeVisible();
+  await page.keyboard.press("F8");
+  await expect(quick.getByRole("button", { name: "Context ×3" })).toBeVisible();
 });
 
 test.afterEach(async ({ page }) => {
@@ -342,7 +411,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
 
   await terminalInput.focus();
   await terminalInput.pressSequentially(
-    "1..8 | ForEach-Object { Write-Output \"FOLLOW_$($_)\"; Start-Sleep -Milliseconds 150 }",
+    "1..8 | ForEach-Object { Write-Output \"FOLLOW_$($_)\"; Start-Sleep -Milliseconds 400 }",
     { delay: 2 },
   );
   await terminalInput.press("Enter");
@@ -350,6 +419,11 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   await page.keyboard.press("F8");
   const followingAssistant = page.locator(".terminal-pane-shell.active .inline-assistant");
   await expect(followingAssistant).toBeVisible();
+  await expect.poll(async () => {
+    const box = await followingAssistant.boundingBox();
+    const cursor = await page.locator(".terminal-pane-shell.active .xterm-cursor").boundingBox();
+    return box && cursor ? Math.min(Math.abs(box.y - cursor.y - cursor.height), Math.abs(box.y + box.height - cursor.y)) : Infinity;
+  }).toBeLessThan(20);
   const followingStartBox = await followingAssistant.boundingBox();
   expect(followingStartBox).not.toBeNull();
   await expect(page.locator(".terminal-host .xterm-rows")).toContainText("FOLLOW_8", { timeout: 10_000 });
@@ -361,9 +435,11 @@ test("opens without a launch token and drives the real terminal workbench", asyn
 
   await terminalInput.focus();
   await terminalInput.pressSequentially("Write-Output BUFFER_", { delay: 8 });
+  await expect(page.locator(".terminal-host .xterm-rows")).toContainText("Write-Output BUFFER_");
   const terminalBoxBeforeQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
   const terminalCursor = page.locator(".terminal-pane-shell.active .xterm-cursor");
   await expect.poll(() => terminalCursor.count()).toBeGreaterThan(0);
+  await expect.poll(() => terminalCursor.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(0);
   const cursorBoxBeforeQuickAsk = await terminalCursor.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
@@ -386,7 +462,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   expect(cursorBoxBeforeQuickAsk).not.toBeNull();
   expect(quickAskBox).not.toBeNull();
   expect(Math.abs(terminalBoxWithQuickAsk!.height - terminalBoxBeforeQuickAsk!.height)).toBeLessThan(2);
-  expect(quickAskBox!.height).toBeLessThanOrEqual(110);
+  expect(quickAskBox!.height).toBeLessThanOrEqual(165);
   await expect(inlineAssistant.locator(".ask-context-heading")).toContainText("ChatGPT");
   expect(quickAskBox!.width).toBeLessThanOrEqual(430);
   const distanceToCursor = Math.min(
@@ -442,6 +518,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
     const body = await response.json() as { data: Array<{ command: string }> };
     return body.data.at(-1)?.command;
   }, activeSessionId)).toBe("1..80 | ForEach-Object { Write-Output $_ }; Write-Output 'SCROLL_END_80'");
+  await expect(page.locator(".terminal-pane-shell.active .xterm-rows")).toContainText("SCROLL_END_80");
   await expect.poll(async () => {
     const terminalBox = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
     const cursorBox = await page.locator(".terminal-pane-shell.active .xterm-cursor").evaluate((element) => {
@@ -449,6 +526,7 @@ test("opens without a launch token and drives the real terminal workbench", asyn
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     });
     return terminalBox !== null && cursorBox !== null
+      && cursorBox.height > 0 && cursorBox.y < terminalBox.y + terminalBox.height
       && cursorBox.y > terminalBox.y + terminalBox.height - 80;
   }).toBe(true);
   const terminalBoxBeforeFlippedQuickAsk = await page.locator(".terminal-pane-shell.active .terminal-host").boundingBox();
@@ -465,7 +543,14 @@ test("opens without a launch token and drives the real terminal workbench", asyn
   expect(terminalBoxWithFlippedQuickAsk).not.toBeNull();
   expect(flippedQuickAskBox).not.toBeNull();
   expect(Math.abs(terminalBoxWithFlippedQuickAsk!.height - terminalBoxBeforeFlippedQuickAsk!.height)).toBeLessThan(2);
-  expect(Math.abs((flippedQuickAskBox!.y + flippedQuickAskBox!.height) - cursorBoxBeforeFlippedQuickAsk!.y)).toBeLessThan(20);
+  await expect.poll(async () => {
+    const box = await inlineAssistant.boundingBox();
+    const cursor = await page.locator(".terminal-pane-shell.active .xterm-cursor").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { y: rect.y, height: rect.height };
+    });
+    return box !== null && cursor.height > 0 && Math.abs(box.y + box.height - cursor.y) < 20;
+  }).toBe(true);
   await page.keyboard.press("Escape");
 });
 

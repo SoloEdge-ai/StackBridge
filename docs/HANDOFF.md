@@ -15,7 +15,7 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 - AI 路由支持 ChatGPT 与 DeepSeek。提供方和模型随对话冻结；DeepSeek 直接调用 `/responses`，API Key 在桌面版经 Windows 系统加密后保存，浏览器开发模式仅保存到当前 Core 会话。DeepSeek 没有模型工具，只返回回答与待确认建议。
 - Web UI 默认英文；Settings → Language 可即时切换简体中文，选择保存到本地并在刷新或重启后恢复。
 - 每次提问冻结终端、环境、binding、cwd、Shell、context/input 版本；跨环境历史写入同一对话时间线。
-- 默认上下文包含最近 20 条命令、最近 3 条输出或运行中快照，输出上限 64 KiB，并做控制字符清理和基础敏感信息遮蔽。
+- 新 UI 默认只准备最近三个命令块的未成功发送内容，以冻结附件发送，JSON 上限 64 KiB；手动可整块重附。旧请求仍保留最近 20 条命令摘要、最近 3 条输出的兼容行为。
 - AI 只能返回回答与命令建议。Core 拥有不可变建议和持久化 operation；执行需要逐条确认、五分钟内有效、原目标未变、环境已核验、Shell 仍存活且空闲、输入为空，并且批准页面持有写入租约。
 - 经确认命令在原 Shell 执行，所以 `cd`、`export` 和虚拟环境状态继续有效；重复确认、刷新和重试不会二次提交。
 - SQLite 保存对话、冻结建议和命令元数据，终端输出分块保存；默认七天/1 GiB 清理。
@@ -29,6 +29,8 @@ StackBridge 已从结构化远端执行原型升级为终端优先工作台：
 - 尚未验证：真实 DeepSeek 服务和真实 API Key。最终冒烟由用户在应用内输入密钥完成；不得把真实密钥写入聊天、命令行、仓库或 CI。
 
 ## 实机状态
+
+- 本轮 `codex/terminal-context-management`：冻结附件准备、按对话/终端/输出范围增量去重、历史附件持久化、命令块高亮和拖动扩展、Quick Ask 固定位置与缩放。详见 `docs/design/TERMINAL_CONTEXT_MANAGEMENT.md`；新 PR 仅供用户验收，不自动合并。
 
 - Quick Ask 追加 Provider/model、每条消息 auto/manual/none 上下文选择和本地 KiB 估算；完整 AI 面板共用选择。详见 `docs/design/QUICK_ASK_CONTEXT_SELECTION.md`。PR #3 保持打开，等待用户 EXE 验收，不得自动合并。
 

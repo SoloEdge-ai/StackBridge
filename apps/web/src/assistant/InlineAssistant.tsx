@@ -4,6 +4,8 @@ import { localizedEnvironmentLabel, useLanguage } from "../i18n.js";
 import type { TerminalContext, TerminalCursorAnchor } from "../terminal/types.js";
 import { ProposalCard } from "./AssistantPanel.js";
 import { ContextPicker } from "./ContextPicker.js";
+import { AssistantMarkdown } from "./AssistantMarkdown.js";
+import { useFloatingAssistant } from "./use-floating-assistant.js";
 import type { AssistantController } from "./use-assistant-controller.js";
 
 interface QuickAskAnchor {
@@ -123,6 +125,7 @@ export function InlineAssistant({
   const expanded = !!latestAssistantMessage || turnPendingHere
     || (assistant.error !== undefined && assistant.errorTerminalId === context?.terminalSessionId);
   const anchor = useTerminalCursorAnchor(rootRef, paneElement, cursorAnchor, expanded);
+  const floating = useFloatingAssistant(context?.terminalSessionId ?? "", paneElement, rootRef);
   const contextSummary = `${environment} · ${context?.cwd || "—"} · ${context?.shell || "—"}`;
 
   useLayoutEffect(() => {
@@ -134,8 +137,8 @@ export function InlineAssistant({
 
   const placementProps = {
     ref: rootRef,
-    style: { left: anchor.left, top: anchor.top, width: anchor.width },
-    "data-placement": anchor.placement,
+    style: { left: anchor.left, top: anchor.top, width: anchor.width, ...floating.style },
+    "data-placement": floating.fixed ? "fixed" : anchor.placement,
   } as const;
   if (!assistant.activeProvider) {
     return (
@@ -157,7 +160,12 @@ export function InlineAssistant({
   }
   return (
     <section {...placementProps} className="inline-assistant" aria-label={t("快速询问 AI")}>
+      <div className="quick-ask-drag-bar" aria-label="Move Quick Ask" onPointerDown={(event) => floating.begin(event, "move")}>
+        <span>⠿ Quick Ask</span>
+        {floating.fixed ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={floating.reset}>{locale === "zh-CN" ? "返回光标旁" : "Follow cursor"}</button> : null}
+      </div>
       <ContextPicker assistant={assistant} context={context} />
+      <button type="button" className="quick-ask-resize" aria-label="Resize Quick Ask" onPointerDown={(event) => floating.begin(event, "resize")} />
       <div className="inline-ask-row">
         <button
           type="button"
@@ -190,7 +198,7 @@ export function InlineAssistant({
             <span>AI</span>
             <button type="button" className="inline-history-button" aria-label={t("历史与详情")} title={t("历史与详情")} onClick={onOpenHistory}>↗</button>
           </div>
-          <div className="message-body">{latestAssistantMessage.content}</div>
+          <AssistantMarkdown content={latestAssistantMessage.content} />
           {proposals.map((proposal) => (
             <ProposalCard
               key={proposal.id}

@@ -223,12 +223,17 @@ describe("AI provider HTTP boundary", () => {
 
   it("locks a conversation to DeepSeek and routes every turn through Responses API", async () => {
     const requestBodies: unknown[] = [];
+    let failNext = false;
     deepSeek = createServer((request, response) => {
       let body = "";
       request.setEncoding("utf8");
       request.on("data", (chunk) => { body += chunk; });
       request.on("end", () => {
         requestBodies.push(JSON.parse(body));
+        if (failNext) {
+          failNext = false;
+          response.writeHead(503); response.end("fixture unavailable"); return;
+        }
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({
           id: `response-${requestBodies.length}`,
@@ -261,7 +266,8 @@ describe("AI provider HTTP boundary", () => {
     });
     const contextPty = new ControlledPty();
     const terminals = new TerminalSessionManager(() => contextPty, { shellIntegrationTokenFactory: () => "context-test" });
-    const conversations = new ConversationService(terminals, ai);
+    let clock = Date.now();
+    const conversations = new ConversationService(terminals, ai, () => new Date(clock), workspace);
     core = createCoreServer({
       allowedOrigins: [origin],
       terminalSessions: terminals,
@@ -357,6 +363,100 @@ describe("AI provider HTTP boundary", () => {
     expect(withoutContext.status).toBe(200);
     expect(deepSeekInputText(requestBodies[5])).not.toContain("<terminal_context>");
     expect(deepSeekInputText(requestBodies[5])).not.toContain("C:\\private-work");
+    const prepare = async (selection: object = {}, terminalId = terminal.id) => {
+      const response = await fetch(`${baseUrl}/v1/terminal-sessions/${terminalId}/ai-context`, {
+        method: "POST", headers,
+        body: JSON.stringify({ conversationId: created.id, contextMode: "auto", ...selection }),
+      });
+      expect(response.status).toBe(200);
+      return await response.json() as { preparedId: string; outputCount: number; attachments: Array<{ command: string; output: string }> };
+    };
+    const prepared = await prepare();
+    expect(prepared.preparedId).toEqual(expect.any(String));
+    expect(prepared.outputCount).toBe(3);
+    const preparedTurn = await fetch(`${baseUrl}/v1/conversations/${created.id}/turns`, {
+      method: "POST", headers,
+      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, message: "Frozen context", preparedContextId: prepared.preparedId }),
+    });
+    expect(preparedTurn.status).toBe(200);
+    expect(await prepare()).toMatchObject({ outputCount: 0 });
+    contextPty.emitData(marker({ type: "commandStart", command: "echo FIVE", cwd: "C:\\private-work", shell: "powershell", user: "test-user" }));
+    contextPty.emitData("FIRST_PART\r\n");
+    const frozen = await prepare();
+    contextPty.emitData("SECOND_PART\r\n");
+    const otherCookie = await authenticate(baseUrl);
+    const sendPrepared = (preparedId: string, requestHeaders = headers) => fetch(`${baseUrl}/v1/conversations/${created.id}/turns`, {
+      method: "POST", headers: requestHeaders,
+      body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, message: "Continue", preparedContextId: preparedId }),
+    });
+    expect((await sendPrepared(frozen.preparedId, { ...headers, cookie: otherCookie })).status).toBe(409);
+    expect((await sendPrepared(frozen.preparedId)).status).toBe(200);
+    const frozenInput = taggedBlock(deepSeekInputText(requestBodies.at(-1)), "terminal_context");
+    expect(frozenInput).toContain("FIRST_PART");
+    expect(frozenInput).not.toContain("SECOND_PART");
+    const incremental = await prepare();
+    expect(incremental.outputCount).toBe(1);
+    expect(incremental.attachments[0]?.output).toBe("SECOND_PART\r\n");
+    expect((await sendPrepared(incremental.preparedId)).status).toBe(200);
+    expect(taggedBlock(deepSeekInputText(requestBodies.at(-1)), "conversation_history")).toContain("FIRST_PART");
+    expect(await prepare()).toMatchObject({ outputCount: 0 });
+    expect((await sendPrepared(incremental.preparedId)).status).toBe(409);
+    const expired = await prepare();
+    clock += 11 * 60_000;
+    expect((await sendPrepared(expired.preparedId)).status).toBe(409);
+    const repeat = await prepare({ contextMode: "manual", commandIds: [blocks.data[3]!.id] });
+    expect(repeat.attachments).toMatchObject([{ command: "echo FOUR", output: "OUTPUT_FOUR\r\n", repeated: true }]);
+    expect((await sendPrepared(repeat.preparedId)).status).toBe(200);
+    expect(await prepare()).toMatchObject({ outputCount: 0 });
+    const noTerminal = await prepare({ contextMode: "none" });
+    expect(noTerminal.outputCount).toBe(0);
+    expect((await sendPrepared(noTerminal.preparedId)).status).toBe(200);
+    const noTerminalInput = deepSeekInputText(requestBodies.at(-1));
+    expect(noTerminalInput).not.toContain("<terminal_context>");
+    expect(taggedBlock(noTerminalInput, "conversation_history")).toContain("OUTPUT_FOUR");
+    const newConversationResponse = await fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST", headers, body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, providerId: "deepseek", model: "deepseek-test" }),
+    });
+    const newConversation = await newConversationResponse.json() as { id: string };
+    expect(await prepare({ conversationId: newConversation.id })).toMatchObject({ outputCount: 3 });
+    const draft = await prepare({ conversationId: undefined, prepare: true });
+    const countBefore = (await (await fetch(`${baseUrl}/v1/conversations`, { headers })).json() as { data: unknown[] }).data.length;
+    const concurrentCreates = await Promise.all([0, 1].map(() => fetch(`${baseUrl}/v1/conversations`, {
+      method: "POST", headers, body: JSON.stringify({ schemaVersion: 2, terminalSessionId: terminal.id, providerId: "deepseek", model: "deepseek-test", preparedContextId: draft.preparedId }),
+    })));
+    expect(concurrentCreates.map((response) => response.status).sort()).toEqual([201, 409]);
+    expect((await (await fetch(`${baseUrl}/v1/conversations`, { headers })).json() as { data: unknown[] }).data).toHaveLength(countBefore + 1);
+    const otherTerminalResponse = await fetch(`${baseUrl}/v1/terminal-sessions`, {
+      method: "POST", headers, body: JSON.stringify({ cols: 100, rows: 30 }),
+    });
+    const otherTerminal = await otherTerminalResponse.json() as { id: string };
+    contextPty.emitData(marker({ type: "commandStart", command: "echo CROSS_PANE", cwd: "C:\\private-work", shell: "powershell", user: "test-user" }));
+    contextPty.emitData("CROSS_PANE_OUTPUT\r\n");
+    contextPty.emitData(marker({ type: "commandEnd", cwd: "C:\\private-work", exitCode: 0 }));
+    const otherPrepared = await prepare({}, otherTerminal.id);
+    expect(otherPrepared.outputCount).toBe(1);
+    expect((await sendPrepared(otherPrepared.preparedId)).status).toBe(409);
+    const otherTurn = await fetch(`${baseUrl}/v1/conversations/${created.id}/turns`, {
+      method: "POST", headers, body: JSON.stringify({ schemaVersion: 2, terminalSessionId: otherTerminal.id, message: "Continue in another pane", preparedContextId: otherPrepared.preparedId }),
+    });
+    expect(otherTurn.status).toBe(200);
+    expect(await prepare({}, otherTerminal.id)).toMatchObject({ outputCount: 0 });
+    expect(await prepare()).toMatchObject({ outputCount: 1 });
+    const failedPreview = await prepare();
+    failNext = true;
+    expect((await sendPrepared(failedPreview.preparedId)).ok).toBe(false);
+    expect(await prepare()).toMatchObject({ outputCount: 1 });
+    const failedHistory = await (await fetch(`${baseUrl}/v1/conversations/${created.id}`, { headers })).json() as { messages: Array<{ contextSnapshot?: { status: string } }> };
+    expect(failedHistory.messages.at(-1)?.contextSnapshot?.status).toBe("failed");
+    const restoredCore = createCoreServer({ allowedOrigins: [origin], terminalSessions: terminals, conversations: new ConversationService(terminals, ai, () => new Date(clock), workspace), ai });
+    try {
+      const restoredUrl = await listenCore(restoredCore);
+      const restoredCookie = await authenticate(restoredUrl);
+      const restored = await fetch(`${restoredUrl}/v1/terminal-sessions/${otherTerminal.id}/ai-context`, {
+        method: "POST", headers: { ...headers, cookie: restoredCookie }, body: JSON.stringify({ conversationId: created.id, contextMode: "auto" }),
+      });
+      expect(await restored.json()).toMatchObject({ outputCount: 0 });
+    } finally { await restoredCore.close(); }
   });
 
   it("cancels an active DeepSeek turn through the conversation stop endpoint", async () => {
@@ -408,6 +508,11 @@ describe("AI provider HTTP boundary", () => {
     });
     const conversation = await createdResponse.json() as { id: string };
 
+    const preparedResponse = await fetch(`${baseUrl}/v1/terminal-sessions/${terminal.id}/ai-context`, {
+      method: "POST", headers, body: JSON.stringify({ conversationId: conversation.id, contextMode: "auto" }),
+    });
+    const prepared = await preparedResponse.json() as { preparedId: string };
+
     const turn = fetch(`${baseUrl}/v1/conversations/${conversation.id}/turns`, {
       method: "POST",
       headers,
@@ -415,6 +520,7 @@ describe("AI provider HTTP boundary", () => {
         schemaVersion: 2,
         terminalSessionId: terminal.id,
         message: "Wait for this request",
+        preparedContextId: prepared.preparedId,
       }),
     });
     await started;
@@ -428,6 +534,8 @@ describe("AI provider HTTP boundary", () => {
     const cancelled = await turn;
     expect(cancelled.status).toBe(408);
     expect(await cancelled.json()).toMatchObject({ error: "deepseek_request_cancelled" });
+    const snapshot = await fetch(`${baseUrl}/v1/conversations/${conversation.id}`, { headers });
+    expect(await snapshot.json()).toMatchObject({ messages: expect.arrayContaining([expect.objectContaining({ contextSnapshot: expect.objectContaining({ status: "cancelled" }) })]) });
   });
 
   it("returns stable errors for authentication, throttling, timeout, server failure, and malformed responses", async () => {

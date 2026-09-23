@@ -116,6 +116,10 @@ Core 最多同时持有 16 个终端会话；达到上限时先淘汰已退出�
 
 ## AI 提供方 HTTP
 
+上下文准备流程：`POST /v1/terminal-sessions/:id/ai-context` 增加 `prepare: true` 与可选 `conversationId`，返回十分钟有效的 `preparedId`、附件输出范围、来源、截断状态和预览字节数。新对话创建可携带 `preparedContextId` 将草稿绑定到对话；后续 turn 使用同一字段消费冻结附件。标识绑定认证浏览器会话和终端，不能复用或跨对话使用；过期、绑定不符及并发 turn 返回 409。无准备字段的请求保留下述旧版行为。
+
+新流程自动模式只检查最近三个命令块，减去当前对话已成功发送的输出范围，不补发更早命令。消息可保存 `contextSnapshot`，包含附件和 pending/succeeded/failed/cancelled/unknown 状态。终端 `ready` 增加 `replayStart`，`output` 增加 `start/end` UTF-8 字节位置，用于解析完成后的屏幕定位，不构成执行授权。
+
 所有 AI 端点要求有效的本地认证 cookie 与允许的 `Origin`。`GET /v1/ai/providers` 返回 ChatGPT/DeepSeek 的可用性、配置状态和凭据保存方式；任何响应都不返回 API Key，只返回 `hasApiKey`。`GET /v1/ai/models?providerId=chatgpt|deepseek` 返回对应模型目录。
 
 `PUT /v1/ai/providers/deepseek` 保存单个 DeepSeek 档案，输入为 `baseUrl`、`model` 和可选 `apiKey`；省略密钥表示保留原密钥。`POST /v1/ai/providers/deepseek/test` 使用相同输入测试 Responses API，`DELETE /v1/ai/providers/deepseek` 清除档案。生产运行时 Base URL 必须为 HTTPS；本地模拟 API 的自动化测试通过内部显式开关仅允许 loopback HTTP，该开关不由生产 HTTP 接口暴露。

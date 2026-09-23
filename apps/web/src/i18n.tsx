@@ -12,6 +12,11 @@ export type Locale = "en" | "zh-CN";
 const localeStorageKey = "stackbridge.locale";
 
 const english = {
+  "上下文预览已过期，请检查刷新后的范围并重新发送。": "Context preview expired. Check the refreshed selection and send again.",
+  "上下文预览暂时已达容量上限，请稍后刷新重试。": "Context preview capacity reached. Refresh and retry shortly.",
+  "上下文不属于当前对话或终端，请重新选择。": "Context does not belong to this conversation or terminal. Select it again.",
+  "当前对话仍在处理中，请稍后再发送。": "This conversation is still processing. Wait before sending again.",
+  "本次请求已停止，附件未标记为发送成功。": "Request stopped. Attachments were not marked as successfully sent.",
   "正在连接本地 Core…": "Connecting to local Core…",
   "无法连接本地 Core。": "Unable to connect to local Core.",
   "重新连接": "Retry",

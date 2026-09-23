@@ -8,6 +8,8 @@ import type {
   CreateTurnRequest,
   AiProviderId,
   OperationSnapshot,
+  ContextSelection,
+  AssistantContextPreview,
 } from "@stackbridge/protocol";
 
 import type {
@@ -17,6 +19,7 @@ import type {
   TerminalSessionManager,
 } from "./terminal-session.js";
 import type { ConversationPersistence } from "./workspace-store.js";
+import { PreparedContexts, PreparedContextError, sanitizeTerminalText } from "./prepared-context.js";
 
 const proposalLifetimeMs = 5 * 60_000;
 const maximumContextBytes = 64 * 1_024;
@@ -76,6 +79,8 @@ interface FrozenProposal {
 }
 
 export class ConversationService {
+  private readonly prepared: PreparedContexts;
+  private readonly activeTurns = new Map<string, { cancelled: boolean }>();
   private readonly conversations = new Map<string, ManagedConversation>();
   private readonly proposals = new Map<string, FrozenProposal>();
   private readonly operations = new Map<string, OperationSnapshot>();
@@ -87,7 +92,9 @@ export class ConversationService {
     private readonly now: () => Date = () => new Date(),
     private readonly persistence?: ConversationPersistence,
   ) {
+    this.prepared = new PreparedContexts(now);
     for (const snapshot of persistence?.loadConversations() ?? []) {
+      for (const message of snapshot.messages) if (message.contextSnapshot?.status === "pending") message.contextSnapshot.status = "unknown";
       this.conversations.set(snapshot.id, { snapshot });
     }
     for (const stored of persistence?.loadProposals() ?? []) {
@@ -109,7 +116,7 @@ export class ConversationService {
     }
   }
 
-  async create(input: CreateConversationRequest): Promise<ConversationSnapshot> {
+  async create(input: CreateConversationRequest, owner = ""): Promise<ConversationSnapshot> {
     if (this.terminals.get(input.terminalSessionId) === undefined) {
       throw new ConversationTerminalNotFoundError();
     }
@@ -120,11 +127,14 @@ export class ConversationService {
         : "gpt-5.6-luna"
     );
     const engine = this.requireEngine(providerId);
+    const conversationId = randomUUID();
+    // Claim the draft before starting a provider session; concurrent creates cannot both win.
+    if (input.preparedContextId) this.prepared.bind(input.preparedContextId, owner, input.terminalSessionId, conversationId);
     const providerSessionId = await engine.startSession(model);
     const now = this.now().toISOString();
     const snapshot: ConversationSnapshot = {
       schemaVersion: 2,
-      id: randomUUID(),
+      id: conversationId,
       title: "新对话",
       providerId,
       model,
@@ -154,12 +164,21 @@ export class ConversationService {
     return clone(this.requireProposal(id).proposal);
   }
 
-  async turn(id: string, input: CreateTurnRequest): Promise<ConversationSnapshot> {
+  prepareContext(terminalId: string, selection: ContextSelection, owner: string): AssistantContextPreview {
+    const terminal = this.terminals.get(terminalId);
+    if (!terminal) throw new ConversationTerminalNotFoundError();
+    const history = selection.conversationId ? this.requireConversation(selection.conversationId).snapshot.messages : [];
+    return this.prepared.prepare(terminal, selection, history, owner);
+  }
+
+  async turn(id: string, input: CreateTurnRequest, owner = ""): Promise<ConversationSnapshot> {
+    if (this.activeTurns.has(id)) throw new PreparedContextError("conversation_turn_in_progress");
     const conversation = this.requireConversation(id);
     const engine = this.requireEngine(conversation.snapshot.providerId);
     const terminal = this.terminals.get(input.terminalSessionId);
     if (terminal === undefined) throw new ConversationTerminalNotFoundError();
     const frozen = terminal.context();
+    const prepared = input.preparedContextId ? this.prepared.consume(input.preparedContextId, owner, terminal.id, id) : undefined;
     const agentSessionId = randomUUID();
     const createdAt = this.now().toISOString();
     const environmentSignature = frozen.environmentStack
@@ -184,6 +203,7 @@ export class ConversationService {
       content: input.message,
       createdAt,
       agentSessionId,
+      ...(prepared ? { contextSnapshot: prepared.snapshot } : {}),
     };
     conversation.snapshot.messages.push(userMessage);
     conversation.snapshot.updatedAt = createdAt;
@@ -192,7 +212,11 @@ export class ConversationService {
     }
     this.persistence?.saveConversation(conversation.snapshot);
 
-    const result = await engine.runTurn({
+    const activeTurn = { cancelled: false };
+    this.activeTurns.set(id, activeTurn);
+    let result: Awaited<ReturnType<AgentEngine["runTurn"]>>;
+    try {
+    result = await engine.runTurn({
       conversationId: conversation.snapshot.id,
       ...(conversation.snapshot.providerSessionId === undefined
         ? {}
@@ -200,8 +224,17 @@ export class ConversationService {
       model: conversation.snapshot.model,
       message: input.message,
       history,
-      context: input.contextMode === "none" ? null : buildAssistantContext(frozen, terminal.commands(), input.commandIds, input.contextMode),
+      context: prepared ? prepared.context : input.contextMode === "none" ? null : buildAssistantContext(frozen, terminal.commands(), input.commandIds, input.contextMode),
     });
+    if (activeTurn.cancelled) throw new PreparedContextError("conversation_turn_cancelled");
+    if (userMessage.contextSnapshot) userMessage.contextSnapshot.status = "succeeded";
+    } catch (error) {
+      if (userMessage.contextSnapshot) userMessage.contextSnapshot.status = activeTurn.cancelled ? "cancelled" : "failed";
+      this.persistence?.saveConversation(conversation.snapshot);
+      throw error;
+    } finally {
+      this.activeTurns.delete(id);
+    }
     const proposalIds: string[] = [];
     for (const candidate of result.proposals.slice(0, 8)) {
       if (candidate.command.trim() === "" || candidate.purpose.trim() === "") continue;
@@ -369,6 +402,8 @@ export class ConversationService {
   }
 
   async stop(id: string): Promise<void> {
+    const active = this.activeTurns.get(id);
+    if (active) active.cancelled = true;
     const conversation = this.requireConversation(id);
     const engine = this.requireEngine(conversation.snapshot.providerId);
     if (engine.stopTurn === undefined) return;
@@ -516,14 +551,6 @@ function toOperationSnapshot(
       : { commandBlockId: operation.commandBlockId }),
     ...(operation.exitCode === undefined ? {} : { exitCode: operation.exitCode }),
   };
-}
-
-function sanitizeTerminalText(value: string): string {
-  return value
-    .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, "")
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, "[REDACTED PRIVATE BLOCK]")
-    .replace(/\b(?:sk|ghp|github_pat|xox[baprs])_[A-Za-z0-9_-]{16,}\b/g, "[REDACTED TOKEN]");
 }
 
 function trimUtf8End(value: string, maxBytes: number): string {

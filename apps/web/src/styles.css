@@ -207,7 +207,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .terminal-pane-context .environment-meta { min-width: 0; max-width: 42%; display: flex; align-items: center; gap: 7px; color: #60606d; font-size: 8px; white-space: nowrap; }
 .terminal-pane-context .environment-meta code { min-width: 0; overflow: hidden; color: #747482; text-overflow: ellipsis; }
 .terminal-pane-context .environment-meta span { color: #5b638e; text-transform: uppercase; }
-.terminal-host { flex: 1 1 0; min-width: 0; min-height: 0; padding: 10px 9px 6px 16px; overflow: hidden; }
+.terminal-host { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; padding: 10px 9px 6px 16px; overflow: hidden; }
 .terminal-host .xterm { height: 100%; }
 .terminal-pane-close {
   position: relative;
@@ -361,6 +361,20 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .message.user .message-role { text-align: right; }
 .message-body { color: #d2d2da; line-height: 1.58; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .message.user .message-body { padding: 9px 11px; border: 1px solid #35384d; border-radius: 11px 11px 2px 11px; background: #1e2030; }
+.message-body.assistant-markdown { white-space: normal; min-width: 0; }
+.assistant-markdown > :first-child { margin-top: 0; }
+.assistant-markdown > :last-child { margin-bottom: 0; }
+.assistant-markdown p, .assistant-markdown ul, .assistant-markdown ol { margin: .55em 0; }
+.assistant-markdown ul, .assistant-markdown ol { padding-left: 1.7em; }
+.assistant-markdown li + li { margin-top: .25em; }
+.assistant-markdown h1, .assistant-markdown h2, .assistant-markdown h3 { font-size: 1.15em; margin: .8em 0 .4em; }
+.assistant-markdown code { font-family: Consolas, monospace; background: #ffffff0c; border-radius: 3px; padding: .1em .3em; }
+.assistant-markdown pre { max-width: 100%; overflow-x: auto; white-space: pre; padding: 10px; background: #080a10; border: 1px solid #303343; border-radius: 6px; }
+.assistant-markdown pre code { background: none; padding: 0; }
+.assistant-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: .7em 0; }
+.assistant-markdown th, .assistant-markdown td { border: 1px solid #35384d; padding: 5px 8px; text-align: left; }
+.assistant-markdown blockquote { margin: .7em 0; border-left: 3px solid #666b86; padding-left: 10px; color: #aeb4c8; }
+.assistant-markdown a { color: #96caff; text-decoration: underline; }
 .message.pending { opacity: .7; }
 .thinking { display: flex; align-items: center; gap: 5px; color: #7d7d88; font-size: 10px; }
 .thinking span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
@@ -471,3 +485,16 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .ask-context-command code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .ask-context-command small { display: block; color: #aaaebe; overflow-wrap: anywhere; }
 .ask-context-command pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.terminal-context-overlay { position: absolute; inset: 10px 9px 6px 16px; pointer-events: none; z-index: 2; overflow: hidden; }
+.terminal-context-highlight { position: absolute; left: 0; right: 0; border-left: 3px solid #5de4c7; pointer-events: none; }
+.context-row-paint { position: absolute; background: #5de4c71c; pointer-events: none; }
+.context-source-label { position: absolute; right: 4px; top: 0; max-width: 45%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; color: #a2d4ca; background: #102622e6; }
+.context-range-handle { position: absolute; left: -3px; width: 14px; height: 10px; padding: 0; background: #5de4c7; border: 1px solid #102e29; border-radius: 3px; cursor: ns-resize; pointer-events: auto; touch-action: none; }
+.context-range-handle.start { top: 0; }
+.context-range-handle.end { bottom: 0; }
+.context-range-unavailable { position: absolute; right: 4px; top: 0; background: #17171de6; color: #efc56d; padding: 4px; font-size: 11px; max-width: 70%; }
+.quick-ask-drag-bar { display: flex; justify-content: space-between; padding: 3px 8px; cursor: move; touch-action: none; user-select: none; color: #90909c; font-size: 11px; }
+.quick-ask-drag-bar button { font-size: 11px; padding: 1px 4px; }
+.quick-ask-resize { position: absolute; bottom: 1px; right: 1px; width: 15px; height: 15px; border: 0; padding: 0; border-right: 2px solid #91a1ff; border-bottom: 2px solid #91a1ff; background: transparent; cursor: nwse-resize; touch-action: none; z-index: 4; }
+.message-attachments pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-attachments { font-size: 11px; color: #aaaebe; }

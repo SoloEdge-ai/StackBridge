@@ -43,6 +43,7 @@ export class TerminalWebSocketHub {
       cols: snapshot.cols,
       rows: snapshot.rows,
       replay: snapshot.replay,
+      ...(snapshot.replayStart === undefined ? {} : { replayStart: snapshot.replayStart }),
       writable:
         snapshot.state === "running" && connections.writer === webSocket,
     });

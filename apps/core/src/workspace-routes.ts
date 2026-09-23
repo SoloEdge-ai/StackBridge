@@ -27,6 +27,7 @@ import {
   ProposalNotFoundError,
 } from "./conversation-service.js";
 import { readJsonBody, writeJson } from "./http.js";
+import { PreparedContextError } from "./prepared-context.js";
 import type { RemoteSessionService } from "./remote-session-manager.js";
 import type { TerminalSessionManager } from "./terminal-session.js";
 import { TerminalWebSocketHub } from "./terminal-websocket.js";
@@ -66,6 +67,17 @@ export async function handleWorkspaceRequest(
     else if (!parsed.success) writeJson(response, 400, { error: "invalid_context_selection" });
     else {
       const selection = parsed.data;
+      if (selection.prepare || selection.conversationId) {
+        try {
+          if (!options.conversations) writeJson(response, 503, { error: "conversations_unavailable" });
+          else writeJson(response, 200, options.conversations.prepareContext(terminal.id, selection, authenticatedBrowserSession(request, browserSessions)!));
+        } catch (error) {
+          if (error instanceof PreparedContextError) writeJson(response, 409, { error: error.message });
+          else if (error instanceof ConversationNotFoundError) writeJson(response, 404, { error: "conversation_not_found" });
+          else throw error;
+        }
+        return true;
+      }
       const context = selection.contextMode === "none" ? null : buildAssistantContext(terminal.context(), terminal.commands(), selection.commandIds, selection.contextMode);
       writeJson(response, 200, {
         bytes: context === null ? 0 : Buffer.byteLength(JSON.stringify(context), "utf8"),
@@ -143,9 +155,11 @@ export async function handleWorkspaceRequest(
         return true;
       }
       try {
-        writeJson(response, 201, await options.conversations.create(parsed.data));
+        writeJson(response, 201, await options.conversations.create(parsed.data, authenticatedBrowserSession(request, browserSessions)!));
       } catch (error) {
-        if (error instanceof ConversationTerminalNotFoundError) {
+        if (error instanceof PreparedContextError) {
+          writeJson(response, 409, { error: error.message });
+        } else if (error instanceof ConversationTerminalNotFoundError) {
           writeJson(response, 404, { error: "terminal_session_not_found" });
         } else if (error instanceof AgentEngineUnavailableError) {
           writeJson(response, 503, { error: "ai_provider_unavailable", providerId: error.providerId });
@@ -187,9 +201,11 @@ export async function handleWorkspaceRequest(
       return true;
     }
     try {
-      writeJson(response, 200, await options.conversations.turn(turnMatch[1], parsed.data));
+      writeJson(response, 200, await options.conversations.turn(turnMatch[1], parsed.data, authenticatedBrowserSession(request, browserSessions)!));
     } catch (error) {
-      if (error instanceof ConversationNotFoundError) {
+      if (error instanceof PreparedContextError) {
+        writeJson(response, 409, { error: error.message });
+      } else if (error instanceof ConversationNotFoundError) {
         writeJson(response, 404, { error: "conversation_not_found" });
       } else if (error instanceof ConversationTerminalNotFoundError) {
         writeJson(response, 404, { error: "terminal_session_not_found" });
