@@ -163,9 +163,11 @@ export function useAssistantController(terminalId: string, terminalContext?: Ter
   }, [refreshAccount, refreshConversations, refreshProviders]);
 
   useEffect(() => {
+    let cancelled = false;
     void fetch(`/v1/ai/models?providerId=${providerId}`, { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return;
       const data = ((await response.json()) as { data: AiModel[] }).data;
+      if (cancelled) return;
       setModels(data);
       if (conversation?.providerId === providerId) {
         setModel(conversation.model);
@@ -178,6 +180,7 @@ export function useAssistantController(terminalId: string, terminalContext?: Ter
         ?? data[0];
       if (preferred) setModel(preferred.model);
     });
+    return () => { cancelled = true; };
   }, [conversation?.id, conversation?.model, conversation?.providerId, providerId, providers]);
 
   const createConversation = useCallback(async (targetTerminalId: string, preparedContextId?: string): Promise<ConversationSnapshot> => {

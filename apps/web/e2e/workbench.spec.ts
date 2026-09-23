@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Route } from "@playwright/test";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const screenshotDirectory = resolve(here, "../../../artifacts/playwright");
@@ -11,6 +11,12 @@ const workbenchUrl = process.env.STACKBRIDGE_WEB_URL ?? "http://127.0.0.1:5173";
 test.beforeAll(() => mkdirSync(screenshotDirectory, { recursive: true }));
 
 test("configures DeepSeek from the AI rail without exposing its API key", async ({ page }) => {
+  const delayedChatGptModels: Route[] = [];
+  let holdChatGptModels = true;
+  await page.route("**/v1/ai/models?providerId=chatgpt", (route) => {
+    if (holdChatGptModels) { delayedChatGptModels.push(route); return; }
+    return route.fulfill({ json: { data: [{ id: "gpt-5.6-luna", model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", description: "", isDefault: true }] } });
+  });
   let configured = false;
   let savedModel = "deepseek-flash";
   let conversation: Record<string, unknown> | undefined;
@@ -175,6 +181,7 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await page.locator(".model-settings > summary").click();
   const providerGroup = page.getByRole("group", { name: "AI provider" });
   await expect(providerGroup).toBeVisible();
+  await expect.poll(() => delayedChatGptModels.length).toBeGreaterThan(0);
   await providerGroup.getByRole("button", { name: /DeepSeek/ }).click();
   await expect(page.getByRole("heading", { name: "Configure DeepSeek API" })).toBeVisible();
   await page.getByLabel("Model").fill("deepseek-custom");
@@ -186,6 +193,9 @@ test("configures DeepSeek from the AI rail without exposing its API key", async 
   await expect(page.getByRole("button", { name: "Configure DeepSeek" })).toBeVisible();
   await expect(page.locator("input[type='password']")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("ds-ui-secret");
+  holdChatGptModels = false;
+  for (const route of delayedChatGptModels) await route.fulfill({ json: { data: [{ id: "gpt-5.6-luna", model: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", description: "", isDefault: true }] } });
+  await expect(page.locator(".assistant-tools .model-input input")).toHaveValue("deepseek-custom");
 
   const composer = page.getByPlaceholder("Ask about the current command, output, or next step…");
   await composer.fill("Route this through DeepSeek");
@@ -418,6 +428,8 @@ test("defaults to English and persists a Chinese language choice", async ({ page
 });
 
 test("opens without a launch token and drives the real terminal workbench", async ({ page }) => {
+  await page.route("**/v1/ai/account/status", (route) => route.fulfill({ json: { schemaVersion: 2, available: true, authenticated: true } }));
+  await page.route("**/v1/ai/providers", (route) => route.fulfill({ json: { data: [{ id: "chatgpt", label: "ChatGPT", available: true, configured: true, authenticated: true }] } }));
   await page.goto("/");
 
   await expect(page.locator(".rail-brand")).toBeVisible();
@@ -677,6 +689,8 @@ test("offers AI actions beside the latest terminal output", async ({ page }) => 
 });
 
 test("splits the active terminal horizontally from its context menu", async ({ page }) => {
+  await page.route("**/v1/ai/account/status", (route) => route.fulfill({ json: { schemaVersion: 2, available: true, authenticated: true } }));
+  await page.route("**/v1/ai/providers", (route) => route.fulfill({ json: { data: [{ id: "chatgpt", label: "ChatGPT", available: true, configured: true, authenticated: true }] } }));
   await page.goto("/");
 
   const panes = page.getByRole("group", { name: "Terminal pane" });
